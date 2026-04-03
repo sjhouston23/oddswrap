@@ -1,19 +1,19 @@
 """Unified odds client — fetches from all registered sportsbooks and merges."""
+
 from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Dict, List, Optional
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport
-from oddswrap.normalize import normalize_team
 from oddswrap.books.draftkings import DraftKingsAdapter
 from oddswrap.books.fanduel import FanDuelAdapter
+from oddswrap.models import Game, Sport
+from oddswrap.normalize import normalize_team
 
 logger = logging.getLogger("oddswrap")
 
-_DEFAULT_ADAPTERS: List[BookAdapter] = [
+_DEFAULT_ADAPTERS: list[BookAdapter] = [
     DraftKingsAdapter(),
     FanDuelAdapter(),
 ]
@@ -35,8 +35,8 @@ class OddsClient:
 
     def __init__(
         self,
-        adapters: Optional[List[BookAdapter]] = None,
-        books: Optional[List[str]] = None,
+        adapters: list[BookAdapter] | None = None,
+        books: list[str] | None = None,
     ):
         all_adapters = adapters or _DEFAULT_ADAPTERS
         if books:
@@ -44,19 +44,19 @@ class OddsClient:
             all_adapters = [a for a in all_adapters if a.name in book_set]
         self.adapters = all_adapters
 
-    def get_moneylines(self, sport: str | Sport) -> List[Game]:
+    def get_moneylines(self, sport: str | Sport) -> list[Game]:
         """Fetch moneyline (h2h) odds from all books."""
         return self._fetch_market(sport, "fetch_moneylines")
 
-    def get_spreads(self, sport: str | Sport) -> List[Game]:
+    def get_spreads(self, sport: str | Sport) -> list[Game]:
         """Fetch spread / run-line odds from all books."""
         return self._fetch_market(sport, "fetch_spreads")
 
-    def get_totals(self, sport: str | Sport) -> List[Game]:
+    def get_totals(self, sport: str | Sport) -> list[Game]:
         """Fetch over/under totals from all books."""
         return self._fetch_market(sport, "fetch_totals")
 
-    def get_all(self, sport: str | Sport) -> List[Game]:
+    def get_all(self, sport: str | Sport) -> list[Game]:
         """Fetch all markets (moneylines + spreads + totals) and merge.
 
         Each Game may have Lines with different fields populated
@@ -65,25 +65,26 @@ class OddsClient:
         if isinstance(sport, str):
             sport = Sport(sport.lower())
 
-        all_games: List[Game] = []
+        all_games: list[Game] = []
         for method_name in ("fetch_moneylines", "fetch_spreads", "fetch_totals"):
             all_games.extend(self._fetch_market_raw(sport, method_name))
         return self._merge(all_games)
 
-    def _fetch_market(self, sport: str | Sport, method_name: str) -> List[Game]:
+    def _fetch_market(self, sport: str | Sport, method_name: str) -> list[Game]:
         if isinstance(sport, str):
             sport = Sport(sport.lower())
         raw = self._fetch_market_raw(sport, method_name)
         return self._merge(raw)
 
-    def _fetch_market_raw(self, sport: Sport, method_name: str) -> List[Game]:
+    def _fetch_market_raw(self, sport: Sport, method_name: str) -> list[Game]:
         eligible = [a for a in self.adapters if sport in a.supported_sports()]
         if not eligible:
             return []
 
-        all_games: List[Game] = []
+        all_games: list[Game] = []
         with ThreadPoolExecutor(max_workers=len(eligible)) as pool:
-            def _call(adapter: BookAdapter) -> List[Game]:
+
+            def _call(adapter: BookAdapter) -> list[Game]:
                 fn = getattr(adapter, method_name, None)
                 if fn is None:
                     return []
@@ -101,9 +102,9 @@ class OddsClient:
 
         return all_games
 
-    def _merge(self, games: List[Game]) -> List[Game]:
+    def _merge(self, games: list[Game]) -> list[Game]:
         """Merge games from different books by normalized team names."""
-        merged: Dict[str, Game] = {}
+        merged: dict[str, Game] = {}
 
         for game in games:
             norm_away = normalize_team(game.away_team)
@@ -128,10 +129,10 @@ class OddsClient:
         return list(merged.values())
 
     @property
-    def available_books(self) -> List[str]:
+    def available_books(self) -> list[str]:
         return [a.name for a in self.adapters]
 
-    def supports(self, sport: str | Sport) -> List[str]:
+    def supports(self, sport: str | Sport) -> list[str]:
         if isinstance(sport, str):
             sport = Sport(sport.lower())
         return [a.name for a in self.adapters if sport in a.supported_sports()]

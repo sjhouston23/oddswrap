@@ -1,10 +1,9 @@
 """Core data models for oddswrap."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
-from typing import List, Optional
 
 
 class Sport(str, Enum):
@@ -25,33 +24,34 @@ class Market(str, Enum):
 @dataclass
 class Line:
     """A single sportsbook's odds for one game."""
+
     book: str
-    home_odds: Optional[int] = None    # American odds (e.g., -150)
-    away_odds: Optional[int] = None    # American odds (e.g., +130)
-    home_spread: Optional[float] = None
-    away_spread: Optional[float] = None
-    home_spread_odds: Optional[int] = None
-    away_spread_odds: Optional[int] = None
-    total: Optional[float] = None
-    over_odds: Optional[int] = None
-    under_odds: Optional[int] = None
-    fetched_at: Optional[str] = None
+    home_odds: int | None = None  # American odds (e.g., -150)
+    away_odds: int | None = None  # American odds (e.g., +130)
+    home_spread: float | None = None
+    away_spread: float | None = None
+    home_spread_odds: int | None = None
+    away_spread_odds: int | None = None
+    total: float | None = None
+    over_odds: int | None = None
+    under_odds: int | None = None
+    fetched_at: str | None = None
 
     @property
-    def home_decimal(self) -> Optional[float]:
+    def home_decimal(self) -> float | None:
         return _american_to_decimal(self.home_odds) if self.home_odds is not None else None
 
     @property
-    def away_decimal(self) -> Optional[float]:
+    def away_decimal(self) -> float | None:
         return _american_to_decimal(self.away_odds) if self.away_odds is not None else None
 
     @property
-    def home_implied(self) -> Optional[float]:
+    def home_implied(self) -> float | None:
         d = self.home_decimal
         return 1.0 / d if d and d > 0 else None
 
     @property
-    def away_implied(self) -> Optional[float]:
+    def away_implied(self) -> float | None:
         d = self.away_decimal
         return 1.0 / d if d and d > 0 else None
 
@@ -59,26 +59,27 @@ class Line:
 @dataclass
 class Game:
     """A single game with odds from one or more sportsbooks."""
+
     sport: str
     home_team: str
     away_team: str
-    start_time: Optional[str] = None   # ISO 8601
-    game_id: Optional[str] = None      # External ID from source
-    lines: List[Line] = field(default_factory=list)
+    start_time: str | None = None  # ISO 8601
+    game_id: str | None = None  # External ID from source
+    lines: list[Line] = field(default_factory=list)
 
-    def best_home_odds(self) -> Optional[Line]:
+    def best_home_odds(self) -> Line | None:
         """Return the line with the best (highest) home moneyline odds."""
-        candidates = [l for l in self.lines if l.home_odds is not None]
+        candidates = [ln for ln in self.lines if ln.home_odds is not None]
         if not candidates:
             return None
-        return max(candidates, key=lambda l: l.home_decimal or 0)
+        return max(candidates, key=lambda ln: ln.home_decimal or 0)
 
-    def best_away_odds(self) -> Optional[Line]:
+    def best_away_odds(self) -> Line | None:
         """Return the line with the best (highest) away moneyline odds."""
-        candidates = [l for l in self.lines if l.away_odds is not None]
+        candidates = [ln for ln in self.lines if ln.away_odds is not None]
         if not candidates:
             return None
-        return max(candidates, key=lambda l: l.away_decimal or 0)
+        return max(candidates, key=lambda ln: ln.away_decimal or 0)
 
     def to_dict(self) -> dict:
         return {
@@ -89,12 +90,12 @@ class Game:
             "game_id": self.game_id,
             "lines": [
                 {
-                    "book": l.book,
-                    "home_odds": l.home_odds,
-                    "away_odds": l.away_odds,
-                    "fetched_at": l.fetched_at,
+                    "book": ln.book,
+                    "home_odds": ln.home_odds,
+                    "away_odds": ln.away_odds,
+                    "fetched_at": ln.fetched_at,
                 }
-                for l in self.lines
+                for ln in self.lines
             ],
         }
 

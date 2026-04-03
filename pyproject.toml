@@ -9,12 +9,103 @@ description = "Unified Python SDK for fetching sportsbook odds across multiple b
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+authors = [{name = "sjhouston23"}]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "curl_cffi>=0.7",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "pre-commit>=3.0",
+    "python-semantic-release>=9.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/sjhouston23/oddswrap"
+Repository = "https://github.com/sjhouston23/oddswrap"
+Issues = "https://github.com/sjhouston23/oddswrap/issues"
+Changelog = "https://github.com/sjhouston23/oddswrap/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+# ---------- Ruff ----------
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "SIM108", # ternary operator — readability preference
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["oddswrap"]
+
+# ---------- Pytest ----------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "integration: marks tests that hit real APIs (deselect with '-m \"not integration\"')",
+]
+
+# ---------- Coverage ----------
+[tool.coverage.run]
+source = ["oddswrap"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 70
+
+# ---------- Semantic Release ----------
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = ["oddswrap/__init__.py:__version__"]
+branch = "main"
+commit_message = "chore(release): v{version}"
+build_command = "python -m build"
+changelog_file = "CHANGELOG.md"
+upload_to_pypi = false
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "style", "test"]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
+
+[tool.semantic_release.changelog]
+template_dir = "templates"
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.changelog.environment]
+block_start_string = "{%"
+block_end_string = "%}"
+variable_start_string = "{{"
+variable_end_string = "}}"

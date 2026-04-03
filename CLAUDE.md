@@ -19,6 +19,16 @@ oddswrap/
     __init__.py         # Re-exports all adapters
     draftkings.py       # DraftKings sportscontent API adapter
     fanduel.py          # FanDuel sbapi adapter
+tests/
+  conftest.py          # Shared fixtures with mock API responses
+  test_models.py       # Tests for Game, Line, Sport, odds conversion
+  test_normalize.py    # Tests for team name normalization
+  test_draftkings.py   # Tests for DraftKings adapter (mocked HTTP)
+  test_fanduel.py      # Tests for FanDuel adapter (mocked HTTP)
+  test_client.py       # Tests for OddsClient merge/filter logic
+.github/workflows/
+  ci.yml               # Lint + test on push/PR
+  release.yml          # Auto version bump + changelog + GitHub release
 ```
 
 ## Key Design Decisions
@@ -108,15 +118,92 @@ oddswrap/
 ## Common Commands
 
 ```bash
-# Install for development
-pip install -e .
+# Install for development (includes ruff, pytest, pre-commit, semantic-release)
+pip install -e ".[dev]"
 
 # Run tests
 pytest
 
-# Quick test
+# Run tests with coverage
+pytest --cov=oddswrap --cov-report=term-missing
+
+# Lint
+ruff check .
+
+# Auto-fix lint issues
+ruff check --fix .
+
+# Format
+ruff format .
+
+# Check formatting (no changes)
+ruff format --check .
+
+# Install pre-commit hooks locally
+pre-commit install
+pre-commit install --hook-type commit-msg
+
+# Quick smoke test
 python -c "from oddswrap import OddsClient; print(OddsClient().get_moneylines('mlb'))"
 ```
+
+## Versioning & Releases
+
+This project uses **Semantic Versioning** and **Conventional Commits** for automated releases.
+
+### Commit Message Format
+
+All commits must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+```
+
+**Types that trigger version bumps:**
+- `fix:` → patch bump (0.1.0 → 0.1.1)
+- `perf:` → patch bump
+- `feat:` → minor bump (0.1.0 → 0.2.0)
+- `BREAKING CHANGE:` in footer or `!` after type → major bump (0.1.0 → 1.0.0)
+
+**Other allowed types** (no version bump): `build`, `chore`, `ci`, `docs`, `refactor`, `style`, `test`
+
+### How Releases Work
+
+1. Merge PR to `main` with conventional commit messages
+2. GitHub Actions `release.yml` runs `python-semantic-release`
+3. It analyzes commits since last release, determines the version bump
+4. Updates `pyproject.toml` version, `oddswrap/__init__.py` `__version__`, and `CHANGELOG.md`
+5. Creates a git tag and GitHub Release
+
+### Version is defined in two places (kept in sync automatically):
+- `pyproject.toml` → `project.version`
+- `oddswrap/__init__.py` → `__version__`
+
+## CI/CD
+
+### CI Workflow (`.github/workflows/ci.yml`)
+Runs on every push to `main` and every PR:
+- **Lint job**: ruff check + ruff format check
+- **Test job**: pytest across Python 3.10, 3.11, 3.12, 3.13
+- **Check gate**: blocks merge if any job fails
+
+### Release Workflow (`.github/workflows/release.yml`)
+Runs on push to `main` only:
+- Analyzes conventional commits to determine version bump
+- Updates version in source files
+- Updates CHANGELOG.md
+- Creates git tag + GitHub Release
+
+## Pre-commit Hooks
+
+Configured in `.pre-commit-config.yaml`:
+- Trailing whitespace, end-of-file fixer, YAML/TOML validation
+- **ruff** lint (with auto-fix) + format
+- **conventional-pre-commit** enforces commit message format on `commit-msg` hook
+
+Install with: `pre-commit install && pre-commit install --hook-type commit-msg`
 
 ## Known Limitations
 
@@ -129,8 +216,15 @@ python -c "from oddswrap import OddsClient; print(OddsClient().get_moneylines('m
 
 ## Dependencies
 
+**Runtime:**
 - `curl_cffi>=0.7` — TLS fingerprint impersonation for accessing sportsbook APIs
 - Python 3.10+
+
+**Dev (installed via `pip install -e ".[dev]"`):**
+- `pytest>=7.0` + `pytest-cov>=4.0` — testing and coverage
+- `ruff>=0.4` — linting and formatting
+- `pre-commit>=3.0` — git hook management
+- `python-semantic-release>=9.0` — automated versioning and changelog
 
 ## Integration with Other Projects
 
