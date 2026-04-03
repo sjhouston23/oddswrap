@@ -1,0 +1,219 @@
+# oddswrap
+
+Unified Python SDK for fetching sportsbook odds across multiple books and sports. Goes direct to sportsbook APIs — no middleman services, no API keys.
+
+## Installation
+
+```bash
+pip install git+https://github.com/sjhouston23/oddswrap.git
+```
+
+Or for development:
+```bash
+git clone https://github.com/sjhouston23/oddswrap.git
+cd oddswrap
+pip install -e .
+```
+
+**Dependency:** `curl_cffi` (handles TLS fingerprinting to access sportsbook APIs)
+
+## Quick Start
+
+```python
+from oddswrap import OddsClient
+
+client = OddsClient()
+games = client.get_moneylines("mlb")
+
+for game in games:
+    print(f"{game.away_team} @ {game.home_team}")
+    for line in game.lines:
+        print(f"  {line.book}: {line.away_odds}/{line.home_odds}")
+    best = game.best_home_odds()
+    if best:
+        print(f"  Best home: {best.home_odds} @ {best.book}")
+```
+
+## API Reference
+
+### OddsClient
+
+```python
+from oddswrap import OddsClient
+
+# All registered books
+client = OddsClient()
+
+# Specific books only
+client = OddsClient(books=["draftkings", "fanduel"])
+
+# Custom adapters
+from oddswrap.books import DraftKingsAdapter
+client = OddsClient(adapters=[DraftKingsAdapter()])
+```
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_moneylines(sport)` | `List[Game]` | Moneyline (h2h/win) odds. `Line.home_odds` and `Line.away_odds` populated. |
+| `get_spreads(sport)` | `List[Game]` | Point spread / run line odds. `Line.home_spread`, `away_spread`, `home_spread_odds`, `away_spread_odds` populated. |
+| `get_totals(sport)` | `List[Game]` | Over/under totals. `Line.total`, `over_odds`, `under_odds` populated. |
+| `get_all(sport)` | `List[Game]` | All markets merged. Each game may have multiple Lines with different fields populated. |
+| `available_books` | `List[str]` | Names of all registered adapters. |
+| `supports(sport)` | `List[str]` | Book names that support a given sport. |
+
+**`sport` parameter:** Accepts `"mlb"`, `"nba"`, `"nfl"`, `"nhl"` (string) or `Sport` enum.
+
+### Game
+
+```python
+@dataclass
+class Game:
+    sport: str                          # e.g., "mlb"
+    home_team: str                      # Normalized name, e.g., "new york yankees"
+    away_team: str                      # Normalized name
+    start_time: Optional[str]           # ISO 8601 timestamp
+    game_id: Optional[str]              # Source-specific event ID
+    lines: List[Line]                   # One Line per sportsbook (per market)
+```
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `best_home_odds()` | `Line \| None` | Line with highest home moneyline decimal odds. |
+| `best_away_odds()` | `Line \| None` | Line with highest away moneyline decimal odds. |
+| `to_dict()` | `dict` | Serializable dictionary representation. |
+
+### Line
+
+```python
+@dataclass
+class Line:
+    book: str                               # e.g., "draftkings"
+
+    # Moneyline
+    home_odds: Optional[int]                # American odds, e.g., -150
+    away_odds: Optional[int]                # American odds, e.g., +130
+
+    # Spread / Run Line
+    home_spread: Optional[float]            # e.g., -1.5
+    away_spread: Optional[float]            # e.g., +1.5
+    home_spread_odds: Optional[int]         # American odds on the spread
+    away_spread_odds: Optional[int]
+
+    # Totals (Over/Under)
+    total: Optional[float]                  # e.g., 8.5
+    over_odds: Optional[int]                # American odds
+    under_odds: Optional[int]
+
+    fetched_at: Optional[str]               # ISO 8601 timestamp
+```
+
+#### Computed Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `home_decimal` | `float \| None` | American → decimal conversion |
+| `away_decimal` | `float \| None` | American → decimal conversion |
+| `home_implied` | `float \| None` | Implied probability (1/decimal) |
+| `away_implied` | `float \| None` | Implied probability (1/decimal) |
+
+### Sport Enum
+
+```python
+from oddswrap import Sport
+
+Sport.MLB    # "mlb"
+Sport.NBA    # "nba"
+Sport.NFL    # "nfl"
+Sport.NHL    # "nhl"
+Sport.NCAAF  # "ncaaf"
+Sport.NCAAB  # "ncaab"
+```
+
+### Team Name Normalization
+
+Team names are automatically normalized across books when merging:
+- DraftKings: `"NY Mets"` → `"new york mets"`
+- FanDuel: `"New York Mets"` → `"new york mets"`
+
+```python
+from oddswrap import normalize_team
+
+normalize_team("NY Mets")       # "new york mets"
+normalize_team("ATL Braves")    # "atlanta braves"
+normalize_team("Chi White Sox") # "chicago white sox"
+```
+
+## Supported Books
+
+| Book | Moneylines | Spreads | Totals | Sports |
+|------|:----------:|:-------:|:------:|--------|
+| DraftKings | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
+| FanDuel | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
+
+## Adding a New Sportsbook
+
+Create a new adapter in `oddswrap/books/`:
+
+```python
+from oddswrap.base import BookAdapter
+from oddswrap.models import Game, Line, Sport
+
+class BetMGMAdapter(BookAdapter):
+    name = "betmgm"
+
+    def supported_sports(self):
+        return [Sport.MLB, Sport.NBA, Sport.NFL, Sport.NHL]
+
+    def fetch_moneylines(self, sport: Sport) -> list[Game]:
+        # Fetch from BetMGM API, parse, return list of Game objects
+        ...
+
+    def fetch_spreads(self, sport: Sport) -> list[Game]:
+        ...
+
+    def fetch_totals(self, sport: Sport) -> list[Game]:
+        ...
+```
+
+Then register it:
+```python
+from oddswrap import OddsClient
+from oddswrap.books.betmgm import BetMGMAdapter
+
+client = OddsClient(adapters=[
+    DraftKingsAdapter(),
+    FanDuelAdapter(),
+    BetMGMAdapter(),
+])
+```
+
+## Architecture
+
+```
+oddswrap/
+  __init__.py          # Public API: OddsClient, Game, Line, Sport, normalize_team
+  client.py            # Unified client — parallel fetch, merge by game
+  models.py            # Game, Line, Sport, Market dataclasses
+  base.py              # BookAdapter abstract base class
+  normalize.py         # Cross-book team name normalization (MLB/NBA/NFL/NHL)
+  books/
+    __init__.py
+    draftkings.py      # DraftKings sportscontent API
+    fanduel.py         # FanDuel sbapi
+```
+
+## How It Works
+
+1. Each sportsbook adapter implements `BookAdapter` with market-specific methods
+2. Adapters use `curl_cffi` with browser TLS impersonation to bypass bot detection
+3. `OddsClient` calls all enabled adapters in parallel via `ThreadPoolExecutor`
+4. Results are merged by normalized team names so "NY Mets" (DK) matches "New York Mets" (FD)
+5. Each `Game` object aggregates `Line` entries from all books that have odds for that matchup
+
+## License
+
+MIT
