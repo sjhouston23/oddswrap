@@ -6,8 +6,12 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from oddswrap.base import BookAdapter
+from oddswrap.books.betmgm import BetMGMAdapter
+from oddswrap.books.betrivers import BetRiversAdapter
+from oddswrap.books.caesars import CaesarsAdapter
 from oddswrap.books.draftkings import DraftKingsAdapter
 from oddswrap.books.fanduel import FanDuelAdapter
+from oddswrap.books.thescore import TheScoreAdapter
 from oddswrap.models import Game, Sport
 from oddswrap.normalize import normalize_team
 
@@ -16,6 +20,10 @@ logger = logging.getLogger("oddswrap")
 _DEFAULT_ADAPTERS: list[BookAdapter] = [
     DraftKingsAdapter(),
     FanDuelAdapter(),
+    BetMGMAdapter(),
+    BetRiversAdapter(),
+    CaesarsAdapter(),
+    TheScoreAdapter(),
 ]
 
 
