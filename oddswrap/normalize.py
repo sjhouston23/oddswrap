@@ -1,11 +1,10 @@
 """Team name normalization for cross-book matching."""
-from __future__ import annotations
 
-from typing import Dict
+from __future__ import annotations
 
 # Maps known aliases/abbreviations → canonical lowercase name
 # Covers MLB, NBA, NFL, NHL
-_ALIASES: Dict[str, str] = {
+_ALIASES: dict[str, str] = {
     # MLB
     "ari diamondbacks": "arizona diamondbacks",
     "atl braves": "atlanta braves",

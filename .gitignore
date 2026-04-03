@@ -8,3 +8,6 @@ build/
 .venv/
 venv/
 .pytest_cache/
+.coverage
+htmlcov/
+*.lcov

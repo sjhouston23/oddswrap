@@ -16,5 +16,5 @@ from oddswrap.client import OddsClient
 from oddswrap.models import Game, Line, Sport
 from oddswrap.normalize import normalize_team
 
-__all__ = ["OddsClient", "Game", "Line", "Sport", "normalize_team"]
+__all__ = ["Game", "Line", "OddsClient", "Sport", "normalize_team"]
 __version__ = "0.1.0"
