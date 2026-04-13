@@ -4,25 +4,25 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from oddswrap.books.draftkings import DraftKingsAdapter, _parse_american
-from oddswrap.models import Sport
+from oddswrap.books.draftkings import DraftKingsAdapter
+from oddswrap.models import Sport, parse_american
 
 
 class TestParseAmerican:
     def test_positive(self):
-        assert _parse_american("+150") == 150
+        assert parse_american("+150") == 150
 
     def test_negative(self):
-        assert _parse_american("-170") == -170
+        assert parse_american("-170") == -170
 
     def test_unicode_minus(self):
-        assert _parse_american("\u2212250") == -250
+        assert parse_american("\u2212250") == -250
 
     def test_invalid(self):
-        assert _parse_american("EVEN") is None
+        assert parse_american("EVEN") is None
 
     def test_none(self):
-        assert _parse_american(None) is None
+        assert parse_american(None) is None
 
 
 class TestDraftKingsAdapter:

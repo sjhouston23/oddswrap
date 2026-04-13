@@ -100,6 +100,16 @@ class Game:
         }
 
 
+def parse_american(val) -> int | None:
+    """Parse American odds from string or int, handling unicode minus (U+2212)."""
+    if val is None:
+        return None
+    try:
+        return int(str(val).replace("\u2212", "-"))
+    except (ValueError, TypeError):
+        return None
+
+
 def _american_to_decimal(odds: int) -> float:
     if odds > 0:
         return 1 + odds / 100

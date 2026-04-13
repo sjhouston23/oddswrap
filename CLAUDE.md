@@ -17,12 +17,14 @@ oddswrap/
   normalize.py         # Team name normalization across books (MLB/NBA/NFL/NHL aliases)
   books/
     __init__.py         # Re-exports all adapters
+    bovada.py           # Bovada coupon API adapter
     draftkings.py       # DraftKings sportscontent API adapter
     fanduel.py          # FanDuel sbapi adapter
 tests/
   conftest.py          # Shared fixtures with mock API responses
   test_models.py       # Tests for Game, Line, Sport, odds conversion
   test_normalize.py    # Tests for team name normalization
+  test_bovada.py       # Tests for Bovada adapter (mocked HTTP)
   test_draftkings.py   # Tests for DraftKings adapter (mocked HTTP)
   test_fanduel.py      # Tests for FanDuel adapter (mocked HTTP)
   test_client.py       # Tests for OddsClient merge/filter logic
@@ -91,6 +93,39 @@ tests/
 **Team names use full names with starters:** "Atlanta Braves (R Lopez)" — the adapter strips the starter info.
 
 **State subdomain:** Uses `nj` but works from any IP. Other states (ny, pa, il, etc.) also work.
+
+### Bovada
+
+**Endpoint:** `https://www.bovada.lv/services/sports/event/coupon/events/A/description/{sport_path}?lang=en`
+
+**Sport paths:** `baseball/mlb`, `basketball/nba`, `football/nfl`, `hockey/nhl`, `football/college-football`, `basketball/college-basketball`
+
+**No authentication required.**
+
+**Response structure:**
+```json
+[{
+  "events": [{
+    "id": "...",
+    "description": "Team A @ Team B",
+    "competitors": [{"name": "Team A", "home": false}, {"name": "Team B", "home": true}],
+    "startTime": 1712170800000,
+    "displayGroups": [{"description": "Game Lines", "markets": [{
+      "description": "Moneyline", "status": "O",
+      "outcomes": [{"description": "Team A", "status": "O", "price": {"american": "+150", "handicap": "1.5"}}]
+    }]}]
+  }]
+}]
+```
+
+- Response is a JSON array — events in `response[0]["events"]`
+- `competitors` array with `home` boolean identifies home/away (no name-splitting needed)
+- American odds in `price.american` (string), handicap in `price.handicap` (string)
+- `startTime` is epoch milliseconds — adapter converts to ISO 8601
+- Status `"O"` = open/active
+- Market names: `"Moneyline"`, `"Point Spread"` (or `"Run Line"` for MLB), `"Total"`
+
+**Team names use full names:** "New York Mets", "Atlanta Braves" — normalizes cleanly.
 
 ## How to Add a New Sportsbook
 

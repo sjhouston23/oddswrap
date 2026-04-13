@@ -128,3 +128,118 @@ def fd_raw_response():
             },
         },
     }
+
+
+# ---------- Bovada mock response ----------
+
+
+@pytest.fixture()
+def bovada_raw_response():
+    """Minimal Bovada coupon API response (JSON array with events nested)."""
+    return [
+        {
+            "path": [],
+            "events": [
+                {
+                    "id": "bov1",
+                    "description": "NY Mets @ ATL Braves",
+                    "startTime": 1712170800000,
+                    "competitors": [
+                        {"id": "c1", "name": "New York Mets", "home": False},
+                        {"id": "c2", "name": "Atlanta Braves", "home": True},
+                    ],
+                    "displayGroups": [
+                        {
+                            "description": "Game Lines",
+                            "markets": [
+                                {
+                                    "description": "Moneyline",
+                                    "status": "O",
+                                    "id": "ml1",
+                                    "outcomes": [
+                                        {
+                                            "description": "New York Mets",
+                                            "status": "O",
+                                            "price": {"american": "+145", "decimal": "2.45"},
+                                        },
+                                        {
+                                            "description": "Atlanta Braves",
+                                            "status": "O",
+                                            "price": {"american": "-165", "decimal": "1.61"},
+                                        },
+                                    ],
+                                },
+                                {
+                                    "description": "Run Line",
+                                    "status": "O",
+                                    "id": "sp1",
+                                    "outcomes": [
+                                        {
+                                            "description": "New York Mets",
+                                            "status": "O",
+                                            "price": {"american": "-125", "handicap": "1.5"},
+                                        },
+                                        {
+                                            "description": "Atlanta Braves",
+                                            "status": "O",
+                                            "price": {"american": "+105", "handicap": "-1.5"},
+                                        },
+                                    ],
+                                },
+                                {
+                                    "description": "Total",
+                                    "status": "O",
+                                    "id": "tot1",
+                                    "outcomes": [
+                                        {
+                                            "description": "Over",
+                                            "status": "O",
+                                            "price": {"american": "-108", "handicap": "8.5"},
+                                        },
+                                        {
+                                            "description": "Under",
+                                            "status": "O",
+                                            "price": {"american": "-112", "handicap": "8.5"},
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "id": "bov2",
+                    "description": "SF Giants @ LA Dodgers",
+                    "startTime": 1712178000000,
+                    "competitors": [
+                        {"id": "c3", "name": "San Francisco Giants", "home": False},
+                        {"id": "c4", "name": "Los Angeles Dodgers", "home": True},
+                    ],
+                    "displayGroups": [
+                        {
+                            "description": "Game Lines",
+                            "markets": [
+                                {
+                                    "description": "Moneyline",
+                                    "status": "O",
+                                    "id": "ml2",
+                                    "outcomes": [
+                                        {
+                                            "description": "San Francisco Giants",
+                                            "status": "O",
+                                            "price": {"american": "+195", "decimal": "2.95"},
+                                        },
+                                        {
+                                            "description": "Los Angeles Dodgers",
+                                            "status": "O",
+                                            "price": {"american": "\u2212240", "decimal": "1.42"},
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+    ]

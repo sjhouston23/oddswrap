@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport
+from oddswrap.models import Game, Line, Sport, parse_american
 
 logger = logging.getLogger("oddswrap.draftkings")
 
@@ -25,13 +25,6 @@ _CATEGORY_ID = 493  # Full Game lines
 _BASE_URL = (
     "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/{league_id}/categories/{category_id}"
 )
-
-
-def _parse_american(s: str) -> int | None:
-    try:
-        return int(str(s).replace("\u2212", "-"))
-    except (ValueError, AttributeError, TypeError):
-        return None
 
 
 class DraftKingsAdapter(BookAdapter):
@@ -104,7 +97,7 @@ class DraftKingsAdapter(BookAdapter):
             home_odds = away_odds = None
             for sel in sels:
                 label = sel.get("label", "")
-                val = _parse_american(sel.get("displayOdds", {}).get("american", ""))
+                val = parse_american(sel.get("displayOdds", {}).get("american", ""))
                 if val is None:
                     continue
                 if label in home_raw or home_raw in label:
@@ -154,7 +147,7 @@ class DraftKingsAdapter(BookAdapter):
             home_spread_odds = away_spread_odds = None
             for sel in sels:
                 label = sel.get("label", "")
-                val = _parse_american(sel.get("displayOdds", {}).get("american", ""))
+                val = parse_american(sel.get("displayOdds", {}).get("american", ""))
                 # Extract spread value from label, e.g. "NYY Yankees -1.5"
                 points = sel.get("points")
                 if val is None:
@@ -216,7 +209,7 @@ class DraftKingsAdapter(BookAdapter):
             over_odds = under_odds = None
             for sel in sels:
                 label = sel.get("label", "").lower()
-                val = _parse_american(sel.get("displayOdds", {}).get("american", ""))
+                val = parse_american(sel.get("displayOdds", {}).get("american", ""))
                 points = sel.get("points")
                 if val is None:
                     continue

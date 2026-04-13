@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport
+from oddswrap.models import Game, Line, Sport, parse_american
 
 logger = logging.getLogger("oddswrap.fanduel")
 
@@ -22,15 +22,6 @@ _PAGE_IDS: dict[Sport, str] = {
 
 _BASE_URL = "https://sbapi.nj.sportsbook.fanduel.com/api/content-managed-page"
 _API_KEY = "FhMFpcPWXMeyZxOx"
-
-
-def _parse_american(val) -> int | None:
-    if val is None:
-        return None
-    try:
-        return int(str(val).replace("\u2212", "-"))
-    except (ValueError, TypeError):
-        return None
 
 
 class FanDuelAdapter(BookAdapter):
@@ -98,9 +89,7 @@ class FanDuelAdapter(BookAdapter):
             home_odds = away_odds = None
             for runner in mkt.get("runners", []):
                 name = runner.get("runnerName", "")
-                val = _parse_american(
-                    runner.get("winRunnerOdds", {}).get("americanDisplayOdds", {}).get("americanOdds")
-                )
+                val = parse_american(runner.get("winRunnerOdds", {}).get("americanDisplayOdds", {}).get("americanOdds"))
                 if val is None:
                     continue
                 if name in home_clean or home_clean in name:
@@ -151,9 +140,7 @@ class FanDuelAdapter(BookAdapter):
             home_spread_odds = away_spread_odds = None
             for runner in mkt.get("runners", []):
                 name = runner.get("runnerName", "")
-                val = _parse_american(
-                    runner.get("winRunnerOdds", {}).get("americanDisplayOdds", {}).get("americanOdds")
-                )
+                val = parse_american(runner.get("winRunnerOdds", {}).get("americanDisplayOdds", {}).get("americanOdds"))
                 handicap = runner.get("handicap")
                 if val is None:
                     continue
@@ -215,9 +202,7 @@ class FanDuelAdapter(BookAdapter):
             over_odds = under_odds = None
             for runner in mkt.get("runners", []):
                 name = runner.get("runnerName", "").lower()
-                val = _parse_american(
-                    runner.get("winRunnerOdds", {}).get("americanDisplayOdds", {}).get("americanOdds")
-                )
+                val = parse_american(runner.get("winRunnerOdds", {}).get("americanDisplayOdds", {}).get("americanOdds"))
                 handicap = runner.get("handicap")
                 if val is None:
                     continue

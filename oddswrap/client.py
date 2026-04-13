@@ -6,6 +6,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from oddswrap.base import BookAdapter
+from oddswrap.books.bovada import BovadaAdapter
 from oddswrap.books.draftkings import DraftKingsAdapter
 from oddswrap.books.fanduel import FanDuelAdapter
 from oddswrap.models import Game, Sport
@@ -16,6 +17,7 @@ logger = logging.getLogger("oddswrap")
 _DEFAULT_ADAPTERS: list[BookAdapter] = [
     DraftKingsAdapter(),
     FanDuelAdapter(),
+    BovadaAdapter(),
 ]
 
 
