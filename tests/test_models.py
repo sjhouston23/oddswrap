@@ -1,6 +1,40 @@
 """Tests for oddswrap.models."""
 
-from oddswrap.models import Game, Line, Market, Sport, _american_to_decimal
+from oddswrap.models import Game, Line, Market, Sport, _american_to_decimal, decimal_to_american
+
+
+class TestDecimalToAmerican:
+    def test_positive_american(self):
+        # 2.50 → +150
+        assert decimal_to_american(2.50) == 150
+
+    def test_negative_american(self):
+        # 1.50 → -200
+        assert decimal_to_american(1.50) == -200
+
+    def test_even_money(self):
+        # 2.00 → +100
+        assert decimal_to_american(2.00) == 100
+
+    def test_heavy_favorite(self):
+        # 1.10 → -1000
+        assert decimal_to_american(1.10) == -1000
+
+    def test_big_underdog(self):
+        # 6.00 → +500
+        assert decimal_to_american(6.00) == 500
+
+    def test_invalid_returns_none(self):
+        assert decimal_to_american(1.0) is None
+        assert decimal_to_american(0.5) is None
+
+    def test_roundtrip_with_american_to_decimal(self):
+        # +150 → 2.5 → +150
+        dec = _american_to_decimal(150)
+        assert decimal_to_american(dec) == 150
+        # -200 → 1.5 → -200
+        dec = _american_to_decimal(-200)
+        assert decimal_to_american(dec) == -200
 
 
 class TestAmericanToDecimal:

@@ -110,6 +110,20 @@ def parse_american(val) -> int | None:
         return None
 
 
+def decimal_to_american(decimal_odds: float) -> int | None:
+    """Convert decimal odds to American odds.
+
+    - Decimal >= 2.0 → positive American (e.g., 2.50 → +150)
+    - Decimal < 2.0 → negative American (e.g., 1.50 → -200)
+    - Decimal <= 1.0 → None (invalid)
+    """
+    if decimal_odds <= 1.0:
+        return None
+    if decimal_odds >= 2.0:
+        return round((decimal_odds - 1) * 100)
+    return round(-100 / (decimal_odds - 1))
+
+
 def _american_to_decimal(odds: int) -> float:
     if odds > 0:
         return 1 + odds / 100
