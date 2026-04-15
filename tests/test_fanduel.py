@@ -4,22 +4,22 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from oddswrap.books.fanduel import FanDuelAdapter, _parse_american
-from oddswrap.models import Sport
+from oddswrap.books.fanduel import FanDuelAdapter
+from oddswrap.models import Sport, parse_american
 
 
 class TestParseAmerican:
     def test_positive(self):
-        assert _parse_american("+140") == 140
+        assert parse_american("+140") == 140
 
     def test_negative(self):
-        assert _parse_american("-165") == -165
+        assert parse_american("-165") == -165
 
     def test_unicode_minus(self):
-        assert _parse_american("\u2212230") == -230
+        assert parse_american("\u2212230") == -230
 
     def test_none(self):
-        assert _parse_american(None) is None
+        assert parse_american(None) is None
 
 
 class TestFanDuelAdapter:
