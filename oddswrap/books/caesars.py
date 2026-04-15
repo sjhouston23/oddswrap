@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, decimal_to_american, parse_american
+from oddswrap.models import Game, Line, Sport, decimal_to_american, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.caesars")
 
@@ -177,7 +177,7 @@ class CaesarsAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_name,
                         away_team=away_name,
-                        start_time=event.get("startTime"),
+                        start_time=normalize_start_time(event.get("startTime")),
                         game_id=str(event.get("id", "")),
                         lines=[Line(book=self.name, home_odds=home_odds, away_odds=away_odds, fetched_at=now)],
                     )
@@ -233,7 +233,7 @@ class CaesarsAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_name,
                         away_team=away_name,
-                        start_time=event.get("startTime"),
+                        start_time=normalize_start_time(event.get("startTime")),
                         game_id=str(event.get("id", "")),
                         lines=[
                             Line(
@@ -291,7 +291,7 @@ class CaesarsAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_name,
                         away_team=away_name,
-                        start_time=event.get("startTime"),
+                        start_time=normalize_start_time(event.get("startTime")),
                         game_id=str(event.get("id", "")),
                         lines=[
                             Line(

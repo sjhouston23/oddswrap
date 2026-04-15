@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -63,8 +65,9 @@ class Game:
     sport: str
     home_team: str
     away_team: str
-    start_time: str | None = None  # ISO 8601
+    start_time: str | None = None  # ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)
     game_id: str | None = None  # External ID from source
+    live: bool = False  # True if the game is currently in progress
     lines: list[Line] = field(default_factory=list)
 
     def best_home_odds(self) -> Line | None:
@@ -88,6 +91,7 @@ class Game:
             "away_team": self.away_team,
             "start_time": self.start_time,
             "game_id": self.game_id,
+            "live": self.live,
             "lines": [
                 {
                     "book": ln.book,
@@ -122,6 +126,23 @@ def decimal_to_american(decimal_odds: float) -> int | None:
     if decimal_odds >= 2.0:
         return round((decimal_odds - 1) * 100)
     return round(-100 / (decimal_odds - 1))
+
+
+def normalize_start_time(raw: str | None) -> str | None:
+    """Normalize any ISO 8601 variant to ``YYYY-MM-DDTHH:MM:SSZ``.
+
+    Handles: trailing fractional seconds, ``+00:00`` offset, bare ``Z``, etc.
+    """
+    if raw is None:
+        return None
+    # Strip fractional seconds (.000, .0000000, etc.)
+    s = re.sub(r"\.\d+", "", raw)
+    # Normalise "+00:00" offset to "Z"
+    s = re.sub(r"\+00:?00$", "Z", s)
+    # Ensure trailing Z
+    if not s.endswith("Z"):
+        s += "Z"
+    return s
 
 
 def _american_to_decimal(odds: int) -> float:

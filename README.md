@@ -26,7 +26,8 @@ client = OddsClient()
 games = client.get_moneylines("mlb")
 
 for game in games:
-    print(f"{game.away_team} @ {game.home_team}")
+    tag = " [LIVE]" if game.live else ""
+    print(f"{game.away_team} @ {game.home_team}{tag}")
     for line in game.lines:
         print(f"  {line.book}: {line.away_odds}/{line.home_odds}")
     best = game.best_home_odds()
@@ -73,8 +74,9 @@ class Game:
     sport: str                          # e.g., "mlb"
     home_team: str                      # Normalized name, e.g., "new york yankees"
     away_team: str                      # Normalized name
-    start_time: Optional[str]           # ISO 8601 timestamp
+    start_time: Optional[str]           # ISO 8601 UTC (YYYY-MM-DDTHH:MM:SSZ)
     game_id: Optional[str]              # Source-specific event ID
+    live: bool                          # True if the game is currently in progress
     lines: List[Line]                   # One Line per sportsbook (per market)
 ```
 

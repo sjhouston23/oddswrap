@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, parse_american
+from oddswrap.models import Game, Line, Sport, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.bovada")
 
@@ -43,6 +43,11 @@ def _epoch_ms_to_iso(ts: int | None) -> str | None:
         return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
     except (ValueError, TypeError, OSError):
         return None
+
+
+def _is_live(event: dict) -> bool:
+    """Check if an event is live/in-progress."""
+    return event.get("live", False)
 
 
 def _get_competitors(event: dict) -> tuple[str, str] | None:
@@ -129,8 +134,9 @@ class BovadaAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_raw,
                         away_team=away_raw,
-                        start_time=_epoch_ms_to_iso(event.get("startTime")),
+                        start_time=normalize_start_time(_epoch_ms_to_iso(event.get("startTime"))),
                         game_id=str(event.get("id", "")),
+                        live=_is_live(event),
                         lines=[Line(book=self.name, home_odds=home_odds, away_odds=away_odds, fetched_at=now)],
                     )
                 )
@@ -145,7 +151,7 @@ class BovadaAdapter(BookAdapter):
         if events is None:
             return []
         now = datetime.now(timezone.utc).isoformat()
-        market_name = "Run Line" if sport == Sport.MLB else "Point Spread"
+        market_name = "Runline" if sport == Sport.MLB else "Point Spread"
 
         games: list[Game] = []
         for event in events:
@@ -181,8 +187,9 @@ class BovadaAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_raw,
                         away_team=away_raw,
-                        start_time=_epoch_ms_to_iso(event.get("startTime")),
+                        start_time=normalize_start_time(_epoch_ms_to_iso(event.get("startTime"))),
                         game_id=str(event.get("id", "")),
+                        live=_is_live(event),
                         lines=[
                             Line(
                                 book=self.name,
@@ -217,24 +224,29 @@ class BovadaAdapter(BookAdapter):
             for mkt in _find_markets(event, "Total"):
                 total = None
                 over_odds = under_odds = None
+                is_full_game = True
                 for outcome in mkt.get("outcomes", []):
                     if outcome.get("status") != "O":
                         continue
-                    desc = outcome.get("description", "").lower()
+                    desc = outcome.get("description", "")
+                    # Skip inning-specific totals (e.g. "Over - L1H", "Under - L3I")
+                    if " - " in desc:
+                        is_full_game = False
+                        break
                     price = outcome.get("price", {})
                     val = parse_american(price.get("american"))
                     handicap = _parse_handicap(price.get("handicap"))
                     if val is None:
                         continue
-                    if "over" in desc:
+                    if desc.lower() == "over":
                         over_odds = val
                         total = handicap
-                    elif "under" in desc:
+                    elif desc.lower() == "under":
                         under_odds = val
                         if total is None:
                             total = handicap
 
-                if over_odds is None and under_odds is None:
+                if not is_full_game or (over_odds is None and under_odds is None):
                     continue
 
                 games.append(
@@ -242,8 +254,9 @@ class BovadaAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_raw,
                         away_team=away_raw,
-                        start_time=_epoch_ms_to_iso(event.get("startTime")),
+                        start_time=normalize_start_time(_epoch_ms_to_iso(event.get("startTime"))),
                         game_id=str(event.get("id", "")),
+                        live=_is_live(event),
                         lines=[
                             Line(
                                 book=self.name, total=total, over_odds=over_odds, under_odds=under_odds, fetched_at=now

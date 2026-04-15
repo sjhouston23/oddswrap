@@ -1,4 +1,11 @@
-"""BetMGM Sportsbook adapter (bwin/Entain CDS API)."""
+"""BetMGM Sportsbook adapter (bwin/Entain CDS API).
+
+BetMGM uses the bwin/Entain CDS (Content Delivery Service) API.  Odds are
+returned in ``optionMarkets`` within each fixture when the ``gridGroupId``
+query parameter is supplied.  The required ``x-bwin-accessid`` is fetched
+automatically from BetMGM's client-config endpoint so it stays current when
+they rotate the key.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +15,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, decimal_to_american, parse_american
+from oddswrap.models import Game, Line, Sport, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.betmgm")
 
@@ -28,32 +35,27 @@ _COMPETITION_IDS: dict[Sport, str] = {
 }
 
 _BASE_URL = "https://sports.{state}.betmgm.com/cds-api/bettingoffer/fixtures"
-_ACCESS_ID = "OTU4NDk3MzEtOTAyNS00MjQzLWIxNWEtNTI2MjdhNWM3Zjk3"
+_CONFIG_URL = "https://www.{state}.betmgm.com/en/api/clientconfig"
+_GRID_URL = "https://sports.{state}.betmgm.com/cds-api/offer-grouping/grid-view/all"
 
-# Market name mappings
+# Fallback access ID — auto-discovery is preferred
+_FALLBACK_ACCESS_ID = "ZTllNjllODUtOWQwNS00YmU4LWE4NTEtZGZjOTkzMGM5OWU4"
+
+# Market name mappings (matched against optionMarket.name.value)
 _MONEYLINE_NAMES = {"Moneyline", "Money Line"}
-_SPREAD_NAMES = {"Run Line", "Point Spread", "Spread", "Puck Line"}
-_TOTAL_NAMES = {"Total Runs", "Total Points", "Total Goals", "Total", "Over/Under"}
+_SPREAD_NAMES = {"Run Line Spread", "Run Line", "Point Spread", "Spread", "Puck Line", "Puck Line Spread"}
+_TOTAL_NAMES = {"Totals", "Total Runs", "Total Points", "Total Goals", "Total", "Over/Under"}
 
 
-def _parse_result_odds(result: dict) -> int | None:
-    """Extract American odds from a BetMGM result.
-
-    Uses americanOdds string if available, falls back to decimal conversion.
-    """
-    american_str = result.get("americanOdds")
-    if american_str is not None:
-        val = parse_american(american_str)
+def _parse_option_odds(option: dict) -> int | None:
+    """Extract American odds from an optionMarket option's price."""
+    price = option.get("price", {})
+    american = price.get("americanOdds")
+    if american is not None:
+        val = parse_american(str(american))
         if val is not None:
             return val
-    # Fall back to decimal odds
-    dec = result.get("odds")
-    if dec is None:
-        return None
-    try:
-        return decimal_to_american(float(dec))
-    except (ValueError, TypeError):
-        return None
+    return None
 
 
 def _parse_handicap(val) -> float | None:
@@ -61,7 +63,7 @@ def _parse_handicap(val) -> float | None:
     if val is None:
         return None
     try:
-        return float(str(val))
+        return float(str(val).replace("+", ""))
     except (ValueError, TypeError):
         return None
 
@@ -71,33 +73,89 @@ class BetMGMAdapter(BookAdapter):
 
     def __init__(self, state: str = "nj"):
         self._state = state
+        self._access_id: str | None = None
+        self._grid_groups: dict[int, dict[str, str]] = {}  # {sport_id: {group_name: group_id}}
 
     def supported_sports(self) -> list[Sport]:
         return list(_COMPETITION_IDS.keys())
 
-    def _fetch_raw(self, sport: Sport) -> list[dict] | None:
+    def _get_access_id(self) -> str:
+        """Auto-discover the access ID from BetMGM's client config, with fallback."""
+        if self._access_id:
+            return self._access_id
+        try:
+            resp = cffi_requests.get(
+                _CONFIG_URL.format(state=self._state),
+                headers={
+                    "x-bwin-browser-url": f"https://www.{self._state}.betmgm.com/en/sports",
+                    "X-From-Product": "host-app",
+                },
+                impersonate="chrome120",
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # Access ID is embedded in msPreloader.groupingUrl as a query param
+            grouping_url = data.get("msPreloader", {}).get("groupingUrl", "")
+            if "x-bwin-accessid=" in grouping_url:
+                self._access_id = grouping_url.split("x-bwin-accessid=")[1].split("&")[0]
+                logger.info("BetMGM access ID discovered: %s…", self._access_id[:8])
+                return self._access_id
+        except Exception as exc:
+            logger.warning("BetMGM access ID discovery failed: %s", exc)
+        self._access_id = _FALLBACK_ACCESS_ID
+        return self._access_id
+
+    def _get_grid_group_id(self, sport: Sport, group_name: str) -> str | None:
+        """Get the grid group ID for a given sport and market type."""
+        sport_id = int(_SPORT_IDS.get(sport, "0"))
+        if sport_id not in self._grid_groups:
+            try:
+                resp = cffi_requests.get(
+                    _GRID_URL.format(state=self._state),
+                    params={
+                        "x-bwin-accessid": self._get_access_id(),
+                        "lang": "en-us",
+                        "country": "US",
+                        "usercountry": "US",
+                    },
+                    impersonate="chrome120",
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                for item in resp.json():
+                    sid = item.get("sportId")
+                    groups = {}
+                    for g in item.get("groups", []):
+                        groups[g["name"].lower()] = g["id"]
+                    self._grid_groups[sid] = groups
+            except Exception as exc:
+                logger.warning("BetMGM grid groups fetch failed: %s", exc)
+                return None
+        return self._grid_groups.get(sport_id, {}).get(group_name.lower())
+
+    def _fetch_raw(self, sport: Sport, grid_group_id: str | None = None) -> list[dict] | None:
         comp_id = _COMPETITION_IDS.get(sport)
         sport_id = _SPORT_IDS.get(sport)
         if comp_id is None or sport_id is None:
             return None
         url = _BASE_URL.format(state=self._state)
+        params = {
+            "x-bwin-accessid": self._get_access_id(),
+            "lang": "en-us",
+            "country": "US",
+            "userCountry": "US",
+            "offerMapping": "Filtered",
+            "sportIds": sport_id,
+            "competitionIds": comp_id,
+            "fixtureTypes": "Standard",
+            "sortBy": "StartDate",
+            "offerCategories": "Gridable",
+        }
+        if grid_group_id:
+            params["gridGroupId"] = grid_group_id
         try:
-            resp = cffi_requests.get(
-                url,
-                params={
-                    "x-bwin-accessid": _ACCESS_ID,
-                    "lang": "en-us",
-                    "country": "US",
-                    "userCountry": "US",
-                    "offerMapping": "Filtered",
-                    "sportIds": sport_id,
-                    "competitionIds": comp_id,
-                    "fixtureTypes": "Standard",
-                    "offerCategories": "Gridable",
-                },
-                impersonate="chrome120",
-                timeout=15,
-            )
+            resp = cffi_requests.get(url, params=params, impersonate="chrome120", timeout=15)
             resp.raise_for_status()
             data = resp.json()
             return data.get("fixtures", [])
@@ -113,29 +171,36 @@ class BetMGMAdapter(BookAdapter):
             name = p.get("name", {}).get("value", "")
             if not name:
                 continue
-            if ptype == "HOME":
+            if ptype == "HOMETEAM":
                 home = name
-            elif ptype == "AWAY":
+            elif ptype == "AWAYTEAM":
                 away = name
         if home and away:
             return away, home
+        # Fallback: parse "Away at Home" from fixture name
+        fname = fixture.get("name", {}).get("value", "")
+        if " at " in fname:
+            parts = fname.split(" at ", 1)
+            if len(parts) == 2:
+                return parts[0].strip(), parts[1].strip()
         return None
 
-    def _get_markets(self, fixture: dict, market_names: set[str]) -> list[dict]:
-        """Filter games (markets) by name within a fixture."""
+    def _get_option_markets(self, fixture: dict, market_names: set[str]) -> list[dict]:
+        """Filter optionMarkets by name within a fixture."""
         markets = []
-        for game in fixture.get("games", []):
-            if game.get("visibility") != "Visible":
+        for om in fixture.get("optionMarkets", []):
+            if om.get("status") not in ("Visible", "Active"):
                 continue
-            name = game.get("name", {}).get("value", "")
+            name = om.get("name", {}).get("value", "")
             if name in market_names:
-                markets.append(game)
+                markets.append(om)
         return markets
 
     # -- Moneylines --
 
     def fetch_moneylines(self, sport: Sport) -> list[Game]:
-        fixtures = self._fetch_raw(sport)
+        grid_id = self._get_grid_group_id(sport, "money line")
+        fixtures = self._fetch_raw(sport, grid_id)
         if not fixtures:
             return []
         now = datetime.now(timezone.utc).isoformat()
@@ -147,18 +212,18 @@ class BetMGMAdapter(BookAdapter):
                 continue
             away_name, home_name = teams
 
-            for mkt in self._get_markets(fix, _MONEYLINE_NAMES):
+            for mkt in self._get_option_markets(fix, _MONEYLINE_NAMES):
                 home_odds = away_odds = None
-                for result in mkt.get("results", []):
-                    if result.get("visibility") != "Visible":
+                for opt in mkt.get("options", []):
+                    if opt.get("status") != "Visible":
                         continue
-                    name = result.get("name", {}).get("value", "")
-                    val = _parse_result_odds(result)
+                    name = opt.get("name", {}).get("value", "")
+                    val = _parse_option_odds(opt)
                     if val is None:
                         continue
-                    if name == home_name or home_name in name or name in home_name:
+                    if home_name in name or name in home_name:
                         home_odds = val
-                    elif name == away_name or away_name in name or name in away_name:
+                    elif away_name in name or name in away_name:
                         away_odds = val
 
                 if home_odds is None and away_odds is None:
@@ -169,7 +234,7 @@ class BetMGMAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_name,
                         away_team=away_name,
-                        start_time=fix.get("startDate"),
+                        start_time=normalize_start_time(fix.get("startDate")),
                         game_id=str(fix.get("id", "")),
                         lines=[Line(book=self.name, home_odds=home_odds, away_odds=away_odds, fetched_at=now)],
                     )
@@ -181,7 +246,8 @@ class BetMGMAdapter(BookAdapter):
     # -- Spreads --
 
     def fetch_spreads(self, sport: Sport) -> list[Game]:
-        fixtures = self._fetch_raw(sport)
+        grid_id = self._get_grid_group_id(sport, "run line spread") or self._get_grid_group_id(sport, "spread")
+        fixtures = self._fetch_raw(sport, grid_id)
         if not fixtures:
             return []
         now = datetime.now(timezone.utc).isoformat()
@@ -193,21 +259,21 @@ class BetMGMAdapter(BookAdapter):
                 continue
             away_name, home_name = teams
 
-            for mkt in self._get_markets(fix, _SPREAD_NAMES):
+            for mkt in self._get_option_markets(fix, _SPREAD_NAMES):
                 home_spread = away_spread = None
                 home_spread_odds = away_spread_odds = None
-                for result in mkt.get("results", []):
-                    if result.get("visibility") != "Visible":
+                for opt in mkt.get("options", []):
+                    if opt.get("status") != "Visible":
                         continue
-                    name = result.get("name", {}).get("value", "")
-                    val = _parse_result_odds(result)
-                    handicap = _parse_handicap(result.get("attr"))
+                    name = opt.get("name", {}).get("value", "")
+                    val = _parse_option_odds(opt)
+                    handicap = _parse_handicap(opt.get("attr"))
                     if val is None:
                         continue
-                    if name == home_name or home_name in name or name in home_name:
+                    if home_name in name or name in home_name:
                         home_spread = handicap
                         home_spread_odds = val
-                    elif name == away_name or away_name in name or name in away_name:
+                    elif away_name in name or name in away_name:
                         away_spread = handicap
                         away_spread_odds = val
 
@@ -219,7 +285,7 @@ class BetMGMAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_name,
                         away_team=away_name,
-                        start_time=fix.get("startDate"),
+                        start_time=normalize_start_time(fix.get("startDate")),
                         game_id=str(fix.get("id", "")),
                         lines=[
                             Line(
@@ -240,7 +306,8 @@ class BetMGMAdapter(BookAdapter):
     # -- Totals --
 
     def fetch_totals(self, sport: Sport) -> list[Game]:
-        fixtures = self._fetch_raw(sport)
+        grid_id = self._get_grid_group_id(sport, "over/under")
+        fixtures = self._fetch_raw(sport, grid_id)
         if not fixtures:
             return []
         now = datetime.now(timezone.utc).isoformat()
@@ -252,23 +319,25 @@ class BetMGMAdapter(BookAdapter):
                 continue
             away_name, home_name = teams
 
-            for mkt in self._get_markets(fix, _TOTAL_NAMES):
-                total = None
+            for mkt in self._get_option_markets(fix, _TOTAL_NAMES):
+                total = _parse_handicap(mkt.get("attr"))
                 over_odds = under_odds = None
-                for result in mkt.get("results", []):
-                    if result.get("visibility") != "Visible":
+                for opt in mkt.get("options", []):
+                    if opt.get("status") != "Visible":
                         continue
-                    name = result.get("name", {}).get("value", "").lower()
-                    val = _parse_result_odds(result)
-                    handicap = _parse_handicap(result.get("attr"))
+                    name = opt.get("name", {}).get("value", "").lower()
+                    prefix = opt.get("totalsPrefix", "").lower()
+                    val = _parse_option_odds(opt)
+                    handicap = _parse_handicap(opt.get("attr"))
                     if val is None:
                         continue
-                    if "over" in name:
+                    if "over" in name or prefix == "over":
                         over_odds = val
-                        total = handicap
-                    elif "under" in name:
+                        if handicap is not None:
+                            total = handicap
+                    elif "under" in name or prefix == "under":
                         under_odds = val
-                        if total is None:
+                        if total is None and handicap is not None:
                             total = handicap
 
                 if over_odds is None and under_odds is None:
@@ -279,7 +348,7 @@ class BetMGMAdapter(BookAdapter):
                         sport=sport.value,
                         home_team=home_name,
                         away_team=away_name,
-                        start_time=fix.get("startDate"),
+                        start_time=normalize_start_time(fix.get("startDate")),
                         game_id=str(fix.get("id", "")),
                         lines=[
                             Line(
