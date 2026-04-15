@@ -45,7 +45,7 @@ from oddswrap import OddsClient
 client = OddsClient()
 
 # Specific books only
-client = OddsClient(books=["draftkings", "fanduel"])
+client = OddsClient(books=["draftkings", "fanduel", "bovada"])
 
 # Custom adapters
 from oddswrap.books import DraftKingsAdapter
@@ -135,9 +135,11 @@ Sport.NCAAB  # "ncaab"
 
 ### Team Name Normalization
 
-Team names are automatically normalized across books when merging:
+Team names are automatically normalized across all six books when merging:
 - DraftKings: `"NY Mets"` → `"new york mets"`
-- FanDuel: `"New York Mets"` → `"new york mets"`
+- FanDuel: `"New York Mets (S Gray)"` → `"new york mets"`
+- Bovada: `"New York Mets"` → `"new york mets"`
+- Caesars: `"New York Mets"` → `"new york mets"`
 
 ```python
 from oddswrap import normalize_team
@@ -153,6 +155,10 @@ normalize_team("Chi White Sox") # "chicago white sox"
 |------|:----------:|:-------:|:------:|--------|
 | DraftKings | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
 | FanDuel | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
+| Bovada | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL, NCAAF, NCAAB |
+| BetRivers | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
+| BetMGM | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
+| Caesars | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
 
 ## Adding a New Sportsbook
 
@@ -162,14 +168,14 @@ Create a new adapter in `oddswrap/books/`:
 from oddswrap.base import BookAdapter
 from oddswrap.models import Game, Line, Sport
 
-class BetMGMAdapter(BookAdapter):
-    name = "betmgm"
+class PointsBetAdapter(BookAdapter):
+    name = "pointsbet"
 
     def supported_sports(self):
         return [Sport.MLB, Sport.NBA, Sport.NFL, Sport.NHL]
 
     def fetch_moneylines(self, sport: Sport) -> list[Game]:
-        # Fetch from BetMGM API, parse, return list of Game objects
+        # Fetch from PointsBet API, parse, return list of Game objects
         ...
 
     def fetch_spreads(self, sport: Sport) -> list[Game]:
@@ -182,13 +188,9 @@ class BetMGMAdapter(BookAdapter):
 Then register it:
 ```python
 from oddswrap import OddsClient
-from oddswrap.books.betmgm import BetMGMAdapter
+from oddswrap.books.pointsbet import PointsBetAdapter
 
-client = OddsClient(adapters=[
-    DraftKingsAdapter(),
-    FanDuelAdapter(),
-    BetMGMAdapter(),
-])
+client = OddsClient(adapters=[PointsBetAdapter()])
 ```
 
 ## Architecture
@@ -202,6 +204,10 @@ oddswrap/
   normalize.py         # Cross-book team name normalization (MLB/NBA/NFL/NHL)
   books/
     __init__.py
+    betmgm.py          # BetMGM CDS API (bwin/Entain)
+    betrivers.py       # BetRivers / Kambi platform
+    bovada.py          # Bovada coupon API
+    caesars.py         # Caesars (americanwagering.com)
     draftkings.py      # DraftKings sportscontent API
     fanduel.py         # FanDuel sbapi
 ```
@@ -210,8 +216,8 @@ oddswrap/
 
 1. Each sportsbook adapter implements `BookAdapter` with market-specific methods
 2. Adapters use `curl_cffi` with browser TLS impersonation to bypass bot detection
-3. `OddsClient` calls all enabled adapters in parallel via `ThreadPoolExecutor`
-4. Results are merged by normalized team names so "NY Mets" (DK) matches "New York Mets" (FD)
+3. `OddsClient` calls all six adapters in parallel via `ThreadPoolExecutor`
+4. Results are merged by normalized team names so "NY Mets" (DK) matches "New York Mets" (FD/Bovada/Caesars)
 5. Each `Game` object aggregates `Line` entries from all books that have odds for that matchup
 
 ## License
