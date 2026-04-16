@@ -111,13 +111,16 @@ class OddsClient:
         return all_games
 
     def _merge(self, games: list[Game]) -> list[Game]:
-        """Merge games from different books by normalized team names."""
+        """Merge games from different books by normalized team names and date."""
         merged: dict[str, Game] = {}
 
         for game in games:
             norm_away = normalize_team(game.away_team)
             norm_home = normalize_team(game.home_team)
-            key = f"{norm_away}@{norm_home}"
+            # Include the date portion of start_time so same-team series games
+            # (and doubleheaders) don't get merged together.
+            date_part = game.start_time[:10] if game.start_time else "nodate"
+            key = f"{norm_away}@{norm_home}:{date_part}"
 
             if key not in merged:
                 merged[key] = Game(
@@ -126,11 +129,15 @@ class OddsClient:
                     away_team=norm_away,
                     start_time=game.start_time,
                     game_id=game.game_id,
+                    live=game.live,
                     lines=[],
                 )
 
             if not merged[key].start_time and game.start_time:
                 merged[key].start_time = game.start_time
+
+            if game.live:
+                merged[key].live = True
 
             merged[key].lines.extend(game.lines)
 

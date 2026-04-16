@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, parse_american
+from oddswrap.models import Game, Line, Sport, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.fanduel")
 
@@ -105,7 +105,7 @@ class FanDuelAdapter(BookAdapter):
                     sport=sport.value,
                     home_team=home_clean,
                     away_team=away_clean,
-                    start_time=ev.get("openDate"),
+                    start_time=normalize_start_time(ev.get("openDate")),
                     game_id=str(eid),
                     lines=[Line(book=self.name, home_odds=home_odds, away_odds=away_odds, fetched_at=now)],
                 )
@@ -159,7 +159,7 @@ class FanDuelAdapter(BookAdapter):
                     sport=sport.value,
                     home_team=home_clean,
                     away_team=away_clean,
-                    start_time=ev.get("openDate"),
+                    start_time=normalize_start_time(ev.get("openDate")),
                     game_id=str(eid),
                     lines=[
                         Line(
@@ -222,7 +222,7 @@ class FanDuelAdapter(BookAdapter):
                     sport=sport.value,
                     home_team=home_clean,
                     away_team=away_clean,
-                    start_time=ev.get("openDate"),
+                    start_time=normalize_start_time(ev.get("openDate")),
                     game_id=str(eid),
                     lines=[
                         Line(book=self.name, total=total, over_odds=over_odds, under_odds=under_odds, fetched_at=now)

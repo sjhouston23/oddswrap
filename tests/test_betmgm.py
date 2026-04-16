@@ -4,34 +4,27 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from oddswrap.books.betmgm import BetMGMAdapter, _parse_handicap, _parse_result_odds
+from oddswrap.books.betmgm import BetMGMAdapter, _parse_handicap, _parse_option_odds
 from oddswrap.models import Sport
 
 
 class TestHelpers:
-    def test_parse_result_odds_decimal(self):
-        # 2.40 decimal → +140
-        result = {"odds": 2.40}
-        val = _parse_result_odds(result)
-        assert val == 140
-
-    def test_parse_result_odds_american_preferred(self):
-        # americanOdds takes precedence over decimal
-        result = {"americanOdds": "+150", "odds": 2.50}
-        val = _parse_result_odds(result)
+    def test_parse_option_odds_american(self):
+        option = {"price": {"americanOdds": 150, "odds": 2.50}}
+        val = _parse_option_odds(option)
         assert val == 150
 
-    def test_parse_result_odds_negative(self):
-        result = {"odds": 1.62}
-        val = _parse_result_odds(result)
-        assert val is not None
-        assert val < 0
+    def test_parse_option_odds_negative(self):
+        option = {"price": {"americanOdds": -161, "odds": 1.62}}
+        val = _parse_option_odds(option)
+        assert val == -161
 
-    def test_parse_result_odds_none(self):
-        assert _parse_result_odds({}) is None
+    def test_parse_option_odds_none(self):
+        assert _parse_option_odds({"price": {}}) is None
+        assert _parse_option_odds({}) is None
 
     def test_parse_handicap_positive(self):
-        assert _parse_handicap("1.5") == 1.5
+        assert _parse_handicap("+1.5") == 1.5
 
     def test_parse_handicap_negative(self):
         assert _parse_handicap("-1.5") == -1.5
@@ -43,6 +36,9 @@ class TestHelpers:
 class TestBetMGMAdapter:
     def setup_method(self):
         self.adapter = BetMGMAdapter()
+        # Pre-set access ID and grid groups to skip discovery calls in tests
+        self.adapter._access_id = "test-access-id"
+        self.adapter._grid_groups = {23: {"money line": "ml-id"}}
 
     def test_supported_sports(self):
         sports = self.adapter.supported_sports()
@@ -131,26 +127,30 @@ class TestBetMGMAdapter:
         assert games[0].game_id == "mgm1"
 
     @patch("oddswrap.books.betmgm.cffi_requests.get")
-    def test_hidden_markets_skipped(self, mock_get):
-        """Markets with visibility != Visible should be skipped."""
+    def test_suspended_markets_skipped(self, mock_get):
+        """Markets with status != Visible should be skipped."""
         data = {
             "fixtures": [
                 {
                     "id": "fix1",
+                    "name": {"value": "Team A at Team B"},
+                    "startDate": "2026-04-03T18:00:00Z",
                     "participants": [
-                        {"name": {"value": "Team A"}, "properties": {"type": "AWAY"}},
-                        {"name": {"value": "Team B"}, "properties": {"type": "HOME"}},
+                        {"name": {"value": "Team A"}, "properties": {"type": "AwayTeam"}},
+                        {"name": {"value": "Team B"}, "properties": {"type": "HomeTeam"}},
                     ],
-                    "games": [
+                    "optionMarkets": [
                         {
+                            "id": 1,
                             "name": {"value": "Moneyline"},
-                            "visibility": "Hidden",
-                            "results": [
-                                {"name": {"value": "Team A"}, "odds": 2.00, "visibility": "Visible"},
-                                {"name": {"value": "Team B"}, "odds": 1.80, "visibility": "Visible"},
+                            "status": "Suspended",
+                            "options": [
+                                {"name": {"value": "Team A"}, "status": "Visible", "price": {"americanOdds": 100}},
+                                {"name": {"value": "Team B"}, "status": "Visible", "price": {"americanOdds": -120}},
                             ],
                         }
                     ],
+                    "games": [],
                 }
             ]
         }

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, decimal_to_american, parse_american
+from oddswrap.models import Game, Line, Sport, decimal_to_american, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.betrivers")
 
@@ -29,10 +29,18 @@ _BASE_URL = (
     "/listView/{path}/all/all/matches.json?lang=en_US&market=US"
 )
 
-# Kambi betOfferType names (numeric IDs: 2=TWO_WAY, 1=TWO_WAY_HANDICAP, 6=OVER_UNDER)
+_EVENT_URL = (
+    "https://eu-offering-api.kambicdn.com/offering/v2018/{operator}/betoffer/event/{event_id}.json?lang=en_US&market=US"
+)
+
+# Kambi betOfferType names
 _MONEYLINE_TYPES = {"TWO_WAY", "Match"}
 _SPREAD_TYPES = {"TWO_WAY_HANDICAP", "Handicap"}
 _TOTAL_TYPES = {"OVER_UNDER", "Over/Under"}
+
+# Criterion labels for full-game markets only
+_SPREAD_CRITERIA = {"Run Line", "Spread", "Puck Line"}
+_TOTAL_CRITERIA = {"Total Runs", "Total Goals", "Total Points", "Total"}
 
 
 def _kambi_odds_to_american(outcome: dict) -> int | None:
@@ -71,7 +79,11 @@ class BetRiversAdapter(BookAdapter):
     def supported_sports(self) -> list[Sport]:
         return list(_SPORT_PATHS.keys())
 
-    def _fetch_raw(self, sport: Sport) -> dict | None:
+    def _fetch_raw(self, sport: Sport) -> list[dict] | None:
+        """Fetch raw event wrappers from Kambi API.
+
+        Returns a list of wrappers, each with ``event`` and ``betOffers`` keys.
+        """
         path = _SPORT_PATHS.get(sport)
         if path is None:
             return None
@@ -79,15 +91,16 @@ class BetRiversAdapter(BookAdapter):
         try:
             resp = cffi_requests.get(url, impersonate="chrome120", timeout=15)
             resp.raise_for_status()
-            return resp.json()
+            return resp.json().get("events", [])
         except Exception as exc:
             logger.warning("BetRivers fetch failed for %s: %s", sport, exc)
             return None
 
-    def _build_event_map(self, data: dict) -> dict[int, dict]:
-        """Build {event_id: event} map from response."""
+    def _build_event_map(self, wrappers: list[dict]) -> dict[int, dict]:
+        """Build {event_id: inner_event} map from response wrappers."""
         events = {}
-        for ev in data.get("events", []):
+        for wrapper in wrappers:
+            ev = wrapper.get("event", {})
             eid = ev.get("id")
             home = ev.get("homeName")
             away = ev.get("awayName")
@@ -95,14 +108,39 @@ class BetRiversAdapter(BookAdapter):
                 events[eid] = ev
         return events
 
-    def _get_bet_offers(self, data: dict, offer_types: set[str]) -> list[dict]:
-        """Filter betOffers by betOfferType name."""
+    def _get_bet_offers(
+        self, wrappers: list[dict], offer_types: set[str], criteria: set[str] | None = None
+    ) -> list[dict]:
+        """Collect betOffers matching offer_types (and optionally criterion labels) from wrappers."""
         offers = []
-        for bo in data.get("betOffers", []):
-            type_name = bo.get("betOfferType", {}).get("name", "")
-            if type_name in offer_types:
+        for wrapper in wrappers:
+            for bo in wrapper.get("betOffers", []):
+                type_name = bo.get("betOfferType", {}).get("name", "")
+                if type_name not in offer_types:
+                    continue
+                if criteria is not None:
+                    crit_label = bo.get("criterion", {}).get("label", "")
+                    if crit_label not in criteria:
+                        continue
                 offers.append(bo)
         return offers
+
+    def _fetch_event_offers(self, event_ids: list[int]) -> list[dict]:
+        """Fetch full betOffers for a list of event IDs (per-event endpoint).
+
+        Returns a flat list of betOffer dicts with eventId populated.
+        """
+        all_offers = []
+        for eid in event_ids:
+            url = _EVENT_URL.format(operator=self._operator, event_id=eid)
+            try:
+                resp = cffi_requests.get(url, impersonate="chrome120", timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+                all_offers.extend(data.get("betOffers", []))
+            except Exception as exc:
+                logger.warning("BetRivers event %s fetch failed: %s", eid, exc)
+        return all_offers
 
     # -- Moneylines --
 
@@ -144,8 +182,9 @@ class BetRiversAdapter(BookAdapter):
                     sport=sport.value,
                     home_team=home_name,
                     away_team=away_name,
-                    start_time=ev.get("start"),
+                    start_time=normalize_start_time(ev.get("start")),
                     game_id=str(eid),
+                    live=ev.get("state") != "NOT_STARTED",
                     lines=[Line(book=self.name, home_odds=home_odds, away_odds=away_odds, fetched_at=now)],
                 )
             )
@@ -160,7 +199,17 @@ class BetRiversAdapter(BookAdapter):
         if not data:
             return []
         events = self._build_event_map(data)
-        spread_offers = self._get_bet_offers(data, _SPREAD_TYPES)
+        # listView may not include spread offers; fetch per-event
+        spread_offers = self._get_bet_offers(data, _SPREAD_TYPES, _SPREAD_CRITERIA)
+        if not spread_offers:
+            all_offers = self._fetch_event_offers(list(events.keys()))
+            spread_offers = [
+                bo
+                for bo in all_offers
+                if bo.get("betOfferType", {}).get("name", "") in _SPREAD_TYPES
+                and bo.get("criterion", {}).get("label", "") in _SPREAD_CRITERIA
+                and "MAIN_LINE" in bo.get("tags", [])
+            ]
         now = datetime.now(timezone.utc).isoformat()
 
         games: list[Game] = []
@@ -197,8 +246,9 @@ class BetRiversAdapter(BookAdapter):
                     sport=sport.value,
                     home_team=home_name,
                     away_team=away_name,
-                    start_time=ev.get("start"),
+                    start_time=normalize_start_time(ev.get("start")),
                     game_id=str(eid),
+                    live=ev.get("state") != "NOT_STARTED",
                     lines=[
                         Line(
                             book=self.name,
@@ -222,7 +272,17 @@ class BetRiversAdapter(BookAdapter):
         if not data:
             return []
         events = self._build_event_map(data)
-        total_offers = self._get_bet_offers(data, _TOTAL_TYPES)
+        # listView may not include total offers; fetch per-event
+        total_offers = self._get_bet_offers(data, _TOTAL_TYPES, _TOTAL_CRITERIA)
+        if not total_offers:
+            all_offers = self._fetch_event_offers(list(events.keys()))
+            total_offers = [
+                bo
+                for bo in all_offers
+                if bo.get("betOfferType", {}).get("name", "") in _TOTAL_TYPES
+                and bo.get("criterion", {}).get("label", "") in _TOTAL_CRITERIA
+                and "MAIN_LINE" in bo.get("tags", [])
+            ]
         now = datetime.now(timezone.utc).isoformat()
 
         games: list[Game] = []
@@ -261,8 +321,9 @@ class BetRiversAdapter(BookAdapter):
                     sport=sport.value,
                     home_team=home_name,
                     away_team=away_name,
-                    start_time=ev.get("start"),
+                    start_time=normalize_start_time(ev.get("start")),
                     game_id=str(eid),
+                    live=ev.get("state") != "NOT_STARTED",
                     lines=[
                         Line(book=self.name, total=total, over_odds=over_odds, under_odds=under_odds, fetched_at=now)
                     ],
