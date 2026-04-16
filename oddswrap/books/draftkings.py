@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, normalize_start_time, parse_american
+from oddswrap.models import Game, Line, PlayerProp, PropCategory, Sport, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.draftkings")
 
@@ -25,6 +25,13 @@ _CATEGORY_ID = 493  # Full Game lines
 _BASE_URL = (
     "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/{league_id}/categories/{category_id}"
 )
+
+_SUBCAT_URL = (
+    "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1"
+    "/leagues/{league_id}/categories/{category_id}/subcategories/{subcategory_id}"
+)
+
+_LEAGUE_URL = "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/{league_id}"
 
 
 class DraftKingsAdapter(BookAdapter):
@@ -239,3 +246,127 @@ class DraftKingsAdapter(BookAdapter):
 
         logger.info("DraftKings %s totals: %d games", sport.value, len(games))
         return games
+
+    # -- Player Props --
+
+    def fetch_prop_categories(self, sport: Sport) -> list[PropCategory]:
+        league_id = _LEAGUE_IDS.get(sport)
+        if league_id is None:
+            return []
+        url = _LEAGUE_URL.format(league_id=league_id)
+        try:
+            resp = cffi_requests.get(url, impersonate="chrome120", timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.warning("DraftKings prop categories failed for %s: %s", sport, exc)
+            return []
+
+        categories = data.get("categories", [])
+        subcategories = data.get("subcategories", [])
+
+        # Build subcategory lookup by categoryId
+        subcat_by_cat: dict[int, list[dict]] = {}
+        for sc in subcategories:
+            cid = sc.get("categoryId")
+            if cid:
+                subcat_by_cat.setdefault(cid, []).append(sc)
+
+        results: list[PropCategory] = []
+        for cat in categories:
+            cid = cat.get("id")
+            cname = cat.get("name", "")
+            # Skip game-level categories (already covered by get_moneylines etc.)
+            if cid == _CATEGORY_ID:
+                continue
+            subs = subcat_by_cat.get(cid, [])
+            if subs:
+                for sc in subs:
+                    results.append(
+                        PropCategory(
+                            book=self.name,
+                            category_id=str(cid),
+                            category_name=cname,
+                            subcategory_id=str(sc["id"]),
+                            subcategory_name=sc.get("name", ""),
+                        )
+                    )
+            else:
+                results.append(PropCategory(book=self.name, category_id=str(cid), category_name=cname))
+
+        return results
+
+    def fetch_props(self, sport: Sport, category_id: str, subcategory_id: str | None = None) -> list[PlayerProp]:
+        league_id = _LEAGUE_IDS.get(sport)
+        if league_id is None:
+            return []
+
+        if subcategory_id:
+            url = _SUBCAT_URL.format(league_id=league_id, category_id=category_id, subcategory_id=subcategory_id)
+        else:
+            url = _BASE_URL.format(league_id=league_id, category_id=category_id)
+
+        try:
+            resp = cffi_requests.get(url, impersonate="chrome120", timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.warning("DraftKings props fetch failed: %s", exc)
+            return []
+
+        events = {ev["id"]: ev for ev in data.get("events", [])}
+        markets = data.get("markets", [])
+        selections = data.get("selections", [])
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Group selections by market
+        mkt_sels: dict[str, list[dict]] = {}
+        for sel in selections:
+            mkt_sels.setdefault(sel.get("marketId"), []).append(sel)
+
+        props: list[PlayerProp] = []
+        for mkt in markets:
+            mid = mkt["id"]
+            eid = mkt.get("eventId")
+            ev = events.get(eid, {})
+            game_name = ev.get("name")
+            mkt_name = mkt.get("name", "")
+
+            sels = mkt_sels.get(mid, [])
+            over_odds = under_odds = None
+            line = None
+            player = mkt_name
+
+            for sel in sels:
+                label = sel.get("label", "")
+                odds_str = sel.get("displayOdds", {}).get("american", "")
+                val = parse_american(odds_str)
+                points = sel.get("points")
+
+                if "Over" in label:
+                    over_odds = val
+                    line = points
+                elif "Under" in label:
+                    under_odds = val
+                    if line is None:
+                        line = points
+
+            if over_odds is None and under_odds is None:
+                continue
+
+            props.append(
+                PlayerProp(
+                    book=self.name,
+                    player=player,
+                    market=mkt_name,
+                    line=line,
+                    over_odds=over_odds,
+                    under_odds=under_odds,
+                    game=game_name,
+                    event_id=str(eid) if eid else None,
+                    fetched_at=now,
+                )
+            )
+
+        logger.info("DraftKings %s props: %d", sport.value, len(props))
+        return props

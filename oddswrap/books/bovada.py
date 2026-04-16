@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, normalize_start_time, parse_american
+from oddswrap.models import Game, Line, PlayerProp, PropCategory, Sport, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.bovada")
 
@@ -267,3 +267,104 @@ class BovadaAdapter(BookAdapter):
 
         logger.info("Bovada %s totals: %d games", sport.value, len(games))
         return games
+
+    # -- Player Props --
+
+    def fetch_prop_categories(self, sport: Sport) -> list[PropCategory]:
+        events = self._fetch_raw(sport)
+        if events is None:
+            return []
+
+        # Scan displayGroups across events for unique prop group names
+        seen: set[str] = set()
+        results: list[PropCategory] = []
+        for event in events:
+            for dg in event.get("displayGroups", []):
+                dg_name = dg.get("description", "")
+                if dg_name in seen or dg_name == "Game Lines":
+                    continue
+                seen.add(dg_name)
+                # Collect unique market descriptions within this group
+                mkt_names: set[str] = set()
+                for mkt in dg.get("markets", []):
+                    # Strip player name suffix for generic category name
+                    desc = mkt.get("description", "")
+                    base = desc.split(" - ")[0].strip() if " - " in desc else desc
+                    mkt_names.add(base)
+                for mkt_name in sorted(mkt_names):
+                    results.append(
+                        PropCategory(
+                            book=self.name,
+                            category_id=dg_name,
+                            category_name=dg_name,
+                            subcategory_id=mkt_name,
+                            subcategory_name=mkt_name,
+                        )
+                    )
+
+        return results
+
+    def fetch_props(self, sport: Sport, category_id: str, subcategory_id: str | None = None) -> list[PlayerProp]:
+        events = self._fetch_raw(sport)
+        if events is None:
+            return []
+        now = datetime.now(timezone.utc).isoformat()
+
+        props: list[PlayerProp] = []
+        for event in events:
+            game_name = event.get("description")
+            event_id = str(event.get("id", ""))
+
+            for dg in event.get("displayGroups", []):
+                if dg.get("description", "") != category_id:
+                    continue
+                for mkt in dg.get("markets", []):
+                    if mkt.get("status") != "O":
+                        continue
+                    desc = mkt.get("description", "")
+                    # Match subcategory by base name (e.g., "Total Hits" matches "Total Hits - Player")
+                    if subcategory_id:
+                        base = desc.split(" - ")[0].strip() if " - " in desc else desc
+                        if base != subcategory_id:
+                            continue
+
+                    # Extract player name from "Market - Player (Team)" format
+                    player = desc
+                    if " - " in desc:
+                        player = desc.split(" - ", 1)[1].strip()
+
+                    over_odds = under_odds = None
+                    line = None
+                    for outcome in mkt.get("outcomes", []):
+                        if outcome.get("status") != "O":
+                            continue
+                        odesc = outcome.get("description", "").lower()
+                        price = outcome.get("price", {})
+                        val = parse_american(price.get("american"))
+                        handicap = _parse_handicap(price.get("handicap"))
+                        if handicap is not None:
+                            line = handicap
+                        if "over" in odesc:
+                            over_odds = val
+                        elif "under" in odesc:
+                            under_odds = val
+
+                    if over_odds is None and under_odds is None:
+                        continue
+
+                    props.append(
+                        PlayerProp(
+                            book=self.name,
+                            player=player,
+                            market=desc,
+                            line=line,
+                            over_odds=over_odds,
+                            under_odds=under_odds,
+                            game=game_name,
+                            event_id=event_id,
+                            fetched_at=now,
+                        )
+                    )
+
+        logger.info("Bovada %s props: %d", sport.value, len(props))
+        return props

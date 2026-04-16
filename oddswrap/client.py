@@ -12,7 +12,7 @@ from oddswrap.books.bovada import BovadaAdapter
 from oddswrap.books.caesars import CaesarsAdapter
 from oddswrap.books.draftkings import DraftKingsAdapter
 from oddswrap.books.fanduel import FanDuelAdapter
-from oddswrap.models import Game, Sport
+from oddswrap.models import Game, PlayerProp, PropCategory, Sport
 from oddswrap.normalize import normalize_team
 
 logger = logging.getLogger("oddswrap")
@@ -151,3 +151,74 @@ class OddsClient:
         if isinstance(sport, str):
             sport = Sport(sport.lower())
         return [a.name for a in self.adapters if sport in a.supported_sports()]
+
+    # -- Player Props --
+
+    def get_prop_categories(self, sport: str | Sport, book: str | None = None) -> list[PropCategory]:
+        """Discover available player prop categories.
+
+        Args:
+            sport: Sport string or enum.
+            book: Optional book name to query a single adapter.
+
+        Returns:
+            List of PropCategory describing available prop markets.
+        """
+        if isinstance(sport, str):
+            sport = Sport(sport.lower())
+
+        eligible = [a for a in self.adapters if sport in a.supported_sports()]
+        if book:
+            eligible = [a for a in eligible if a.name == book.lower()]
+
+        all_cats: list[PropCategory] = []
+        for adapter in eligible:
+            try:
+                all_cats.extend(adapter.fetch_prop_categories(sport))
+            except Exception as exc:
+                logger.warning("Prop categories failed for %s: %s", adapter.name, exc)
+
+        return all_cats
+
+    def get_props(
+        self,
+        sport: str | Sport,
+        category_id: str,
+        subcategory_id: str | None = None,
+        book: str | None = None,
+    ) -> list[PlayerProp]:
+        """Fetch player props for a given category.
+
+        Args:
+            sport: Sport string or enum.
+            category_id: Category identifier (book-specific).
+            subcategory_id: Optional subcategory identifier.
+            book: Optional book name to query a single adapter.
+
+        Returns:
+            List of PlayerProp with odds data.
+        """
+        if isinstance(sport, str):
+            sport = Sport(sport.lower())
+
+        eligible = [a for a in self.adapters if sport in a.supported_sports()]
+        if book:
+            eligible = [a for a in eligible if a.name == book.lower()]
+
+        all_props: list[PlayerProp] = []
+        with ThreadPoolExecutor(max_workers=max(len(eligible), 1)) as pool:
+
+            def _call(adapter: BookAdapter) -> list[PlayerProp]:
+                try:
+                    return adapter.fetch_props(sport, category_id, subcategory_id)
+                except Exception:
+                    return []
+
+            futures = {pool.submit(_call, a): a for a in eligible}
+            for future in as_completed(futures):
+                try:
+                    all_props.extend(future.result())
+                except Exception as exc:
+                    logger.warning("Props fetch failed for %s: %s", futures[future].name, exc)
+
+        return all_props

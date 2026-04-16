@@ -66,6 +66,32 @@ client = OddsClient(adapters=[DraftKingsAdapter()])
 
 **`sport` parameter:** Accepts `"mlb"`, `"nba"`, `"nfl"`, `"nhl"` (string) or `Sport` enum.
 
+#### Player Props
+
+```python
+# Discover available prop categories from a specific book
+cats = client.get_prop_categories("mlb", book="draftkings")
+# → [PropCategory(book="draftkings", category_id="743", category_name="Batter Props",
+#     subcategory_id="6719", subcategory_name="Hits O/U"), ...]
+
+# Fetch props (DraftKings)
+props = client.get_props("mlb", category_id="743", subcategory_id="6719", book="draftkings")
+
+# Fetch props (Bovada)
+props = client.get_props("mlb", category_id="Player Props", subcategory_id="Total Hits", book="bovada")
+
+# Fetch props (BetRivers)
+props = client.get_props("mlb", category_id="Player Occurrence Line",
+    subcategory_id="Total Hits by the Player - Including Extra Innings ...", book="betrivers")
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_prop_categories(sport, book=)` | `List[PropCategory]` | Discover available prop categories. Pass `book` to query a single adapter. |
+| `get_props(sport, category_id, subcategory_id=, book=)` | `List[PlayerProp]` | Fetch player props for a category. IDs are book-specific — use `get_prop_categories` to discover them. |
+
+> **Note:** Category and subcategory IDs are book-specific. Use `get_prop_categories()` to discover what each book offers, then pass those IDs to `get_props()`. Props are not merged across books — each `PlayerProp` includes a `book` field.
+
 ### Game
 
 ```python
@@ -122,6 +148,34 @@ class Line:
 | `home_implied` | `float \| None` | Implied probability (1/decimal) |
 | `away_implied` | `float \| None` | Implied probability (1/decimal) |
 
+### PlayerProp
+
+```python
+@dataclass
+class PlayerProp:
+    book: str                           # e.g., "draftkings"
+    player: str                         # e.g., "Bobby Witt Jr."
+    market: str                         # e.g., "Hits O/U", "Total Hits"
+    line: Optional[float]               # e.g., 1.5
+    over_odds: Optional[int]            # American odds
+    under_odds: Optional[int]           # American odds
+    game: Optional[str]                 # e.g., "KC Royals @ DET Tigers"
+    event_id: Optional[str]             # Source-specific event ID
+    fetched_at: Optional[str]           # ISO 8601 timestamp
+```
+
+### PropCategory
+
+```python
+@dataclass
+class PropCategory:
+    book: str                           # e.g., "draftkings"
+    category_id: str                    # e.g., "743"
+    category_name: str                  # e.g., "Batter Props"
+    subcategory_id: Optional[str]       # e.g., "6719"
+    subcategory_name: Optional[str]     # e.g., "Hits O/U"
+```
+
 ### Sport Enum
 
 ```python
@@ -153,14 +207,14 @@ normalize_team("Chi White Sox") # "chicago white sox"
 
 ## Supported Books
 
-| Book | Moneylines | Spreads | Totals | Sports |
-|------|:----------:|:-------:|:------:|--------|
-| DraftKings | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
-| FanDuel | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
-| Bovada | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL, NCAAF, NCAAB |
-| BetRivers | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
-| BetMGM | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
-| Caesars | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
+| Book | Moneylines | Spreads | Totals | Props | Sports |
+|------|:----------:|:-------:|:------:|:-----:|--------|
+| DraftKings | ✅ | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
+| FanDuel | ✅ | ✅ | ✅ | | MLB, NBA, NFL, NHL |
+| Bovada | ✅ | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL, NCAAF, NCAAB |
+| BetRivers | ✅ | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
+| BetMGM | ✅ | ✅ | ✅ | | MLB, NBA, NFL, NHL |
+| Caesars | ✅ | ✅ | ✅ | | MLB, NBA, NFL, NHL |
 
 ## Adding a New Sportsbook
 

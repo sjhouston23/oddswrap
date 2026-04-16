@@ -103,6 +103,45 @@ class Game:
         }
 
 
+@dataclass
+class PropCategory:
+    """A category of player props available from a sportsbook."""
+
+    book: str
+    category_id: str
+    category_name: str
+    subcategory_id: str | None = None
+    subcategory_name: str | None = None
+
+
+@dataclass
+class PlayerProp:
+    """A single player prop line from a sportsbook."""
+
+    book: str
+    player: str
+    market: str  # e.g., "Hits O/U", "Total Hits"
+    line: float | None = None  # e.g., 1.5
+    over_odds: int | None = None  # American odds
+    under_odds: int | None = None  # American odds
+    game: str | None = None  # e.g., "KC Royals @ DET Tigers"
+    event_id: str | None = None
+    fetched_at: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "book": self.book,
+            "player": self.player,
+            "market": self.market,
+            "line": self.line,
+            "over_odds": self.over_odds,
+            "under_odds": self.under_odds,
+            "game": self.game,
+            "event_id": self.event_id,
+            "fetched_at": self.fetched_at,
+        }
+
+
 def parse_american(val) -> int | None:
     """Parse American odds from string or int, handling unicode minus (U+2212)."""
     if val is None:

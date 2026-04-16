@@ -12,7 +12,16 @@ from datetime import datetime, timezone
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, decimal_to_american, normalize_start_time, parse_american
+from oddswrap.models import (
+    Game,
+    Line,
+    PlayerProp,
+    PropCategory,
+    Sport,
+    decimal_to_american,
+    normalize_start_time,
+    parse_american,
+)
 
 logger = logging.getLogger("oddswrap.betrivers")
 
@@ -332,3 +341,108 @@ class BetRiversAdapter(BookAdapter):
 
         logger.info("BetRivers %s totals: %d games", sport.value, len(games))
         return games
+
+    # -- Player Props --
+
+    def fetch_prop_categories(self, sport: Sport) -> list[PropCategory]:
+        data = self._fetch_raw(sport)
+        if not data:
+            return []
+        events = self._build_event_map(data)
+        if not events:
+            return []
+
+        # Fetch one event's full offers to discover available criterion labels
+        sample_eid = next(iter(events))
+        all_offers = self._fetch_event_offers([sample_eid])
+
+        seen: set[tuple[str, str]] = set()
+        results: list[PropCategory] = []
+        for bo in all_offers:
+            bt = bo.get("betOfferType", {}).get("name", "")
+            crit = bo.get("criterion", {}).get("label", "")
+            if not crit or (bt, crit) in seen:
+                continue
+            seen.add((bt, crit))
+            results.append(
+                PropCategory(
+                    book=self.name,
+                    category_id=bt,
+                    category_name=bt,
+                    subcategory_id=crit,
+                    subcategory_name=crit,
+                )
+            )
+
+        return results
+
+    def fetch_props(self, sport: Sport, category_id: str, subcategory_id: str | None = None) -> list[PlayerProp]:
+        data = self._fetch_raw(sport)
+        if not data:
+            return []
+        events = self._build_event_map(data)
+        if not events:
+            return []
+
+        all_offers = self._fetch_event_offers(list(events.keys()))
+        now = datetime.now(timezone.utc).isoformat()
+
+        props: list[PlayerProp] = []
+        for bo in all_offers:
+            bt = bo.get("betOfferType", {}).get("name", "")
+            crit = bo.get("criterion", {}).get("label", "")
+
+            if bt != category_id:
+                continue
+            if subcategory_id and crit != subcategory_id:
+                continue
+
+            eid = bo.get("eventId")
+            ev = events.get(eid, {})
+            game_name = f"{ev.get('awayName', '?')} @ {ev.get('homeName', '?')}" if ev else None
+
+            outcomes = bo.get("outcomes", [])
+            over_odds = under_odds = None
+            line = None
+            player = None
+
+            for o in outcomes:
+                label = o.get("label", "")
+                otype = o.get("type", "")
+                val = _kambi_odds_to_american(o)
+                handicap = _kambi_line(o.get("line"))
+
+                # Player name from 'participant' field (Kambi player props)
+                if o.get("participant") and player is None:
+                    player = o["participant"]
+
+                if "over" in label.lower() or otype == "OT_OVER":
+                    over_odds = val
+                    if handicap is not None:
+                        line = handicap
+                elif "under" in label.lower() or otype == "OT_UNDER":
+                    under_odds = val
+                    if line is None and handicap is not None:
+                        line = handicap
+                elif player is None:
+                    player = label
+
+            if over_odds is None and under_odds is None:
+                continue
+
+            props.append(
+                PlayerProp(
+                    book=self.name,
+                    player=player or crit,
+                    market=crit,
+                    line=line,
+                    over_odds=over_odds,
+                    under_odds=under_odds,
+                    game=game_name,
+                    event_id=str(eid) if eid else None,
+                    fetched_at=now,
+                )
+            )
+
+        logger.info("BetRivers %s props: %d", sport.value, len(props))
+        return props

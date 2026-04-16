@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from oddswrap.models import Game, Sport
+from oddswrap.models import Game, PlayerProp, PropCategory, Sport
 
 
 class BookAdapter(ABC):
@@ -33,3 +33,11 @@ class BookAdapter(ABC):
     def fetch_totals(self, sport: Sport) -> list[Game]:
         """Fetch over/under totals. Populates Line.total / over_odds / under_odds."""
         raise NotImplementedError(f"{self.name} does not support totals for {sport}")
+
+    def fetch_prop_categories(self, sport: Sport) -> list[PropCategory]:
+        """Return available player prop categories for this sport."""
+        return []
+
+    def fetch_props(self, sport: Sport, category_id: str, subcategory_id: str | None = None) -> list[PlayerProp]:
+        """Fetch player props for a given category. Returns [] if not supported."""
+        return []
