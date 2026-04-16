@@ -13,8 +13,8 @@ Usage:
 """
 
 from oddswrap.client import OddsClient
-from oddswrap.models import Game, Line, Sport
+from oddswrap.models import Game, Line, PlayerProp, PropCategory, Sport
 from oddswrap.normalize import normalize_team
 
-__all__ = ["Game", "Line", "OddsClient", "Sport", "normalize_team"]
+__all__ = ["Game", "Line", "OddsClient", "PlayerProp", "PropCategory", "Sport", "normalize_team"]
 __version__ = "1.1.1"
