@@ -344,9 +344,6 @@ class BetRiversAdapter(BookAdapter):
 
     # -- Player Props --
 
-    # Kambi betOfferType names that carry player props
-    _PLAYER_PROP_TYPES = {"Over/Under", "Player Occurrence Line"}
-
     def fetch_prop_categories(self, sport: Sport) -> list[PropCategory]:
         data = self._fetch_raw(sport)
         if not data:
@@ -402,7 +399,7 @@ class BetRiversAdapter(BookAdapter):
 
             eid = bo.get("eventId")
             ev = events.get(eid, {})
-            game_name = "%s @ %s" % (ev.get("awayName", "?"), ev.get("homeName", "?")) if ev else None
+            game_name = f"{ev.get('awayName', '?')} @ {ev.get('homeName', '?')}" if ev else None
 
             outcomes = bo.get("outcomes", [])
             over_odds = under_odds = None

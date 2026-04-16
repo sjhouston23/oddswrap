@@ -292,9 +292,7 @@ class DraftKingsAdapter(BookAdapter):
                         )
                     )
             else:
-                results.append(
-                    PropCategory(book=self.name, category_id=str(cid), category_name=cname)
-                )
+                results.append(PropCategory(book=self.name, category_id=str(cid), category_name=cname))
 
         return results
 
@@ -304,9 +302,7 @@ class DraftKingsAdapter(BookAdapter):
             return []
 
         if subcategory_id:
-            url = _SUBCAT_URL.format(
-                league_id=league_id, category_id=category_id, subcategory_id=subcategory_id
-            )
+            url = _SUBCAT_URL.format(league_id=league_id, category_id=category_id, subcategory_id=subcategory_id)
         else:
             url = _BASE_URL.format(league_id=league_id, category_id=category_id)
 

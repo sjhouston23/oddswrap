@@ -341,12 +341,9 @@ class BovadaAdapter(BookAdapter):
                         odesc = outcome.get("description", "").lower()
                         price = outcome.get("price", {})
                         val = parse_american(price.get("american"))
-                        handicap = price.get("handicap")
+                        handicap = _parse_handicap(price.get("handicap"))
                         if handicap is not None:
-                            try:
-                                line = float(str(handicap))
-                            except (ValueError, TypeError):
-                                pass
+                            line = handicap
                         if "over" in odesc:
                             over_odds = val
                         elif "under" in odesc:
