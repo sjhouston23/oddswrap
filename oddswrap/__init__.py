@@ -17,4 +17,4 @@ from oddswrap.models import Game, Line, PlayerProp, PropCategory, Sport
 from oddswrap.normalize import normalize_team
 
 __all__ = ["Game", "Line", "OddsClient", "PlayerProp", "PropCategory", "Sport", "normalize_team"]
-__version__ = "1.1.1"
+__version__ = "1.2.0"
