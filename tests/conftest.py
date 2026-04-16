@@ -281,7 +281,13 @@ def betrivers_raw_response():
                         "tags": ["MAIN_LINE"],
                         "outcomes": [
                             {"label": "New York Mets", "odds": 1850, "status": "OPEN", "line": 1500, "type": "OT_ONE"},
-                            {"label": "Atlanta Braves", "odds": 1950, "status": "OPEN", "line": -1500, "type": "OT_TWO"},
+                            {
+                                "label": "Atlanta Braves",
+                                "odds": 1950,
+                                "status": "OPEN",
+                                "line": -1500,
+                                "type": "OT_TWO",
+                            },
                         ],
                     },
                     {

@@ -30,8 +30,7 @@ _BASE_URL = (
 )
 
 _EVENT_URL = (
-    "https://eu-offering-api.kambicdn.com/offering/v2018/{operator}"
-    "/betoffer/event/{event_id}.json?lang=en_US&market=US"
+    "https://eu-offering-api.kambicdn.com/offering/v2018/{operator}/betoffer/event/{event_id}.json?lang=en_US&market=US"
 )
 
 # Kambi betOfferType names
@@ -109,7 +108,9 @@ class BetRiversAdapter(BookAdapter):
                 events[eid] = ev
         return events
 
-    def _get_bet_offers(self, wrappers: list[dict], offer_types: set[str], criteria: set[str] | None = None) -> list[dict]:
+    def _get_bet_offers(
+        self, wrappers: list[dict], offer_types: set[str], criteria: set[str] | None = None
+    ) -> list[dict]:
         """Collect betOffers matching offer_types (and optionally criterion labels) from wrappers."""
         offers = []
         for wrapper in wrappers:
@@ -203,7 +204,8 @@ class BetRiversAdapter(BookAdapter):
         if not spread_offers:
             all_offers = self._fetch_event_offers(list(events.keys()))
             spread_offers = [
-                bo for bo in all_offers
+                bo
+                for bo in all_offers
                 if bo.get("betOfferType", {}).get("name", "") in _SPREAD_TYPES
                 and bo.get("criterion", {}).get("label", "") in _SPREAD_CRITERIA
                 and "MAIN_LINE" in bo.get("tags", [])
@@ -275,7 +277,8 @@ class BetRiversAdapter(BookAdapter):
         if not total_offers:
             all_offers = self._fetch_event_offers(list(events.keys()))
             total_offers = [
-                bo for bo in all_offers
+                bo
+                for bo in all_offers
                 if bo.get("betOfferType", {}).get("name", "") in _TOTAL_TYPES
                 and bo.get("criterion", {}).get("label", "") in _TOTAL_CRITERIA
                 and "MAIN_LINE" in bo.get("tags", [])
