@@ -170,7 +170,7 @@ def bovada_raw_response():
                                     ],
                                 },
                                 {
-                                    "description": "Run Line",
+                                    "description": "Runline",
                                     "status": "O",
                                     "id": "sp1",
                                     "outcomes": [
@@ -250,69 +250,73 @@ def bovada_raw_response():
 
 @pytest.fixture()
 def betrivers_raw_response():
-    """Minimal Kambi listView API response."""
+    """Minimal Kambi listView API response (nested wrappers format)."""
     return {
         "events": [
             {
-                "id": 1001,
-                "name": "New York Mets - Atlanta Braves",
-                "homeName": "Atlanta Braves",
-                "awayName": "New York Mets",
-                "start": "2026-04-03T18:00:00Z",
-                "state": "NOT_STARTED",
-            },
-            {
-                "id": 1002,
-                "name": "San Francisco Giants - Los Angeles Dodgers",
-                "homeName": "Los Angeles Dodgers",
-                "awayName": "San Francisco Giants",
-                "start": "2026-04-03T20:00:00Z",
-                "state": "NOT_STARTED",
-            },
-        ],
-        "betOffers": [
-            # Moneyline — event 1001
-            {
-                "id": 2001,
-                "eventId": 1001,
-                "betOfferType": {"name": "Match"},
-                "criterion": {"label": "Full Time"},
-                "outcomes": [
-                    {"label": "New York Mets", "odds": 2450, "status": "OPEN", "type": "OT_ONE"},
-                    {"label": "Atlanta Braves", "odds": 1610, "status": "OPEN", "type": "OT_TWO"},
+                "event": {
+                    "id": 1001,
+                    "name": "New York Mets - Atlanta Braves",
+                    "homeName": "Atlanta Braves",
+                    "awayName": "New York Mets",
+                    "start": "2026-04-03T18:00:00Z",
+                    "state": "NOT_STARTED",
+                },
+                "betOffers": [
+                    {
+                        "id": 2001,
+                        "eventId": 1001,
+                        "betOfferType": {"name": "Match"},
+                        "criterion": {"label": "Moneyline"},
+                        "outcomes": [
+                            {"label": "New York Mets", "odds": 2450, "status": "OPEN", "type": "OT_ONE"},
+                            {"label": "Atlanta Braves", "odds": 1610, "status": "OPEN", "type": "OT_TWO"},
+                        ],
+                    },
+                    {
+                        "id": 2003,
+                        "eventId": 1001,
+                        "betOfferType": {"name": "Handicap"},
+                        "criterion": {"label": "Run Line"},
+                        "tags": ["MAIN_LINE"],
+                        "outcomes": [
+                            {"label": "New York Mets", "odds": 1850, "status": "OPEN", "line": 1500, "type": "OT_ONE"},
+                            {"label": "Atlanta Braves", "odds": 1950, "status": "OPEN", "line": -1500, "type": "OT_TWO"},
+                        ],
+                    },
+                    {
+                        "id": 2004,
+                        "eventId": 1001,
+                        "betOfferType": {"name": "Over/Under"},
+                        "criterion": {"label": "Total Runs"},
+                        "tags": ["MAIN_LINE"],
+                        "outcomes": [
+                            {"label": "Over", "odds": 1910, "status": "OPEN", "line": 8500, "type": "OT_OVER"},
+                            {"label": "Under", "odds": 1910, "status": "OPEN", "line": 8500, "type": "OT_UNDER"},
+                        ],
+                    },
                 ],
             },
-            # Moneyline — event 1002
             {
-                "id": 2002,
-                "eventId": 1002,
-                "betOfferType": {"name": "Match"},
-                "criterion": {"label": "Full Time"},
-                "outcomes": [
-                    {"label": "San Francisco Giants", "odds": 2950, "status": "OPEN", "type": "OT_ONE"},
-                    {"label": "Los Angeles Dodgers", "odds": 1420, "status": "OPEN", "type": "OT_TWO"},
-                ],
-            },
-            # Spread — event 1001
-            {
-                "id": 2003,
-                "eventId": 1001,
-                "betOfferType": {"name": "Handicap"},
-                "criterion": {"label": "Handicap"},
-                "outcomes": [
-                    {"label": "New York Mets", "odds": 1850, "status": "OPEN", "line": 1500, "type": "OT_ONE"},
-                    {"label": "Atlanta Braves", "odds": 1950, "status": "OPEN", "line": -1500, "type": "OT_TWO"},
-                ],
-            },
-            # Total — event 1001
-            {
-                "id": 2004,
-                "eventId": 1001,
-                "betOfferType": {"name": "Over/Under"},
-                "criterion": {"label": "Total"},
-                "outcomes": [
-                    {"label": "Over", "odds": 1910, "status": "OPEN", "line": 8500, "type": "OT_OVER"},
-                    {"label": "Under", "odds": 1910, "status": "OPEN", "line": 8500, "type": "OT_UNDER"},
+                "event": {
+                    "id": 1002,
+                    "name": "San Francisco Giants - Los Angeles Dodgers",
+                    "homeName": "Los Angeles Dodgers",
+                    "awayName": "San Francisco Giants",
+                    "start": "2026-04-03T20:00:00Z",
+                    "state": "NOT_STARTED",
+                },
+                "betOffers": [
+                    {
+                        "id": 2002,
+                        "eventId": 1002,
+                        "betOfferType": {"name": "Match"},
+                        "criterion": {"label": "Moneyline"},
+                        "outcomes": [
+                            {"label": "San Francisco Giants", "odds": 2950, "status": "OPEN", "type": "OT_ONE"},
+                            {"label": "Los Angeles Dodgers", "odds": 1420, "status": "OPEN", "type": "OT_TWO"},
+                        ],
+                    },
                 ],
             },
         ],
@@ -324,7 +328,7 @@ def betrivers_raw_response():
 
 @pytest.fixture()
 def betmgm_raw_response():
-    """Minimal BetMGM CDS API fixtures response."""
+    """Minimal BetMGM CDS API fixtures response (optionMarkets format)."""
     return {
         "fixtures": [
             {
@@ -332,68 +336,98 @@ def betmgm_raw_response():
                 "name": {"value": "New York Mets at Atlanta Braves"},
                 "startDate": "2026-04-03T18:00:00Z",
                 "participants": [
-                    {"id": "p1", "name": {"value": "New York Mets"}, "properties": {"type": "AWAY"}},
-                    {"id": "p2", "name": {"value": "Atlanta Braves"}, "properties": {"type": "HOME"}},
+                    {"name": {"value": "New York Mets"}, "properties": {"type": "AwayTeam"}},
+                    {"name": {"value": "Atlanta Braves"}, "properties": {"type": "HomeTeam"}},
                 ],
-                "games": [
+                "optionMarkets": [
                     {
-                        "id": "g1",
+                        "id": 1,
                         "name": {"value": "Moneyline"},
-                        "visibility": "Visible",
-                        "results": [
-                            {"name": {"value": "New York Mets"}, "odds": 2.40, "visibility": "Visible"},
-                            {"name": {"value": "Atlanta Braves"}, "odds": 1.62, "visibility": "Visible"},
+                        "status": "Visible",
+                        "options": [
+                            {
+                                "name": {"value": "Mets"},
+                                "status": "Visible",
+                                "price": {"americanOdds": 140, "odds": 2.40},
+                            },
+                            {
+                                "name": {"value": "Braves"},
+                                "status": "Visible",
+                                "price": {"americanOdds": -161, "odds": 1.62},
+                            },
                         ],
                     },
                     {
-                        "id": "g2",
-                        "name": {"value": "Run Line"},
-                        "visibility": "Visible",
-                        "results": [
+                        "id": 2,
+                        "name": {"value": "Run Line Spread"},
+                        "status": "Visible",
+                        "options": [
                             {
-                                "name": {"value": "New York Mets"},
-                                "odds": 1.80,
-                                "visibility": "Visible",
-                                "attr": "1.5",
+                                "name": {"value": "New York Mets +1.5"},
+                                "status": "Visible",
+                                "price": {"americanOdds": -125, "odds": 1.80},
+                                "attr": "+1.5",
                             },
                             {
-                                "name": {"value": "Atlanta Braves"},
-                                "odds": 2.00,
-                                "visibility": "Visible",
+                                "name": {"value": "Atlanta Braves -1.5"},
+                                "status": "Visible",
+                                "price": {"americanOdds": 100, "odds": 2.00},
                                 "attr": "-1.5",
                             },
                         ],
                     },
                     {
-                        "id": "g3",
-                        "name": {"value": "Total Runs"},
-                        "visibility": "Visible",
-                        "results": [
-                            {"name": {"value": "Over"}, "odds": 1.87, "visibility": "Visible", "attr": "8.5"},
-                            {"name": {"value": "Under"}, "odds": 1.95, "visibility": "Visible", "attr": "8.5"},
+                        "id": 3,
+                        "name": {"value": "Totals"},
+                        "status": "Visible",
+                        "options": [
+                            {
+                                "name": {"value": "Over 8.5"},
+                                "status": "Visible",
+                                "price": {"americanOdds": -115, "odds": 1.87},
+                                "totalsPrefix": "Over",
+                                "attr": "8.5",
+                            },
+                            {
+                                "name": {"value": "Under 8.5"},
+                                "status": "Visible",
+                                "price": {"americanOdds": -105, "odds": 1.95},
+                                "totalsPrefix": "Under",
+                                "attr": "8.5",
+                            },
                         ],
                     },
                 ],
+                "games": [],
             },
             {
                 "id": "mgm2",
                 "name": {"value": "San Francisco Giants at Los Angeles Dodgers"},
                 "startDate": "2026-04-03T20:00:00Z",
                 "participants": [
-                    {"id": "p3", "name": {"value": "San Francisco Giants"}, "properties": {"type": "AWAY"}},
-                    {"id": "p4", "name": {"value": "Los Angeles Dodgers"}, "properties": {"type": "HOME"}},
+                    {"name": {"value": "San Francisco Giants"}, "properties": {"type": "AwayTeam"}},
+                    {"name": {"value": "Los Angeles Dodgers"}, "properties": {"type": "HomeTeam"}},
                 ],
-                "games": [
+                "optionMarkets": [
                     {
-                        "id": "g4",
+                        "id": 4,
                         "name": {"value": "Moneyline"},
-                        "visibility": "Visible",
-                        "results": [
-                            {"name": {"value": "San Francisco Giants"}, "odds": 2.95, "visibility": "Visible"},
-                            {"name": {"value": "Los Angeles Dodgers"}, "odds": 1.42, "visibility": "Visible"},
+                        "status": "Visible",
+                        "options": [
+                            {
+                                "name": {"value": "Giants"},
+                                "status": "Visible",
+                                "price": {"americanOdds": 195, "odds": 2.95},
+                            },
+                            {
+                                "name": {"value": "Dodgers"},
+                                "status": "Visible",
+                                "price": {"americanOdds": -238, "odds": 1.42},
+                            },
                         ],
                     },
                 ],
+                "games": [],
             },
         ],
     }
