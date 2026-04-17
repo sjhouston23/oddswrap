@@ -113,3 +113,89 @@ class TestOddsClient:
         assert len(games[0].lines) == 2
         books = {line.book for line in games[0].lines}
         assert books == {"book_a", "book_b"}
+
+    def test_series_games_same_utc_date_stay_separate(self):
+        """Two games between the same teams on the same UTC date (series games
+        played ~21 hours apart) must not be merged together — each book should
+        contribute one Line per real game, not two duplicate lines per game.
+
+        Regression test for https://github.com/sjhouston23/oddswrap/issues/6
+        """
+
+        class TwoGameAdapter(BookAdapter):
+            name = "two_game"
+
+            def supported_sports(self):
+                return [Sport.MLB]
+
+            def fetch_moneylines(self, sport):
+                return [
+                    Game(
+                        sport=sport.value,
+                        home_team="seattle mariners",
+                        away_team="texas rangers",
+                        start_time="2026-04-18T01:40:00Z",  # 9:40 PM ET on 4/17
+                        game_id="g1",
+                        lines=[Line(book=self.name, home_odds=-144, away_odds=122)],
+                    ),
+                    Game(
+                        sport=sport.value,
+                        home_team="seattle mariners",
+                        away_team="texas rangers",
+                        start_time="2026-04-18T23:15:00Z",  # 7:15 PM ET on 4/18
+                        game_id="g2",
+                        lines=[Line(book=self.name, home_odds=-134, away_odds=114)],
+                    ),
+                ]
+
+        client = OddsClient(adapters=[TwoGameAdapter()])
+        games = client.get_moneylines("mlb")
+        assert len(games) == 2, f"expected 2 separate games, got {len(games)}"
+        for g in games:
+            assert len(g.lines) == 1, f"expected 1 line per game, got {len(g.lines)} in {g.start_time}"
+
+    def test_close_start_times_across_books_still_merge(self):
+        """Two adapters reporting the same game with minor time variance (e.g.,
+        seconds or a minute apart) should still merge into one Game."""
+
+        class BookA(BookAdapter):
+            name = "book_a"
+
+            def supported_sports(self):
+                return [Sport.MLB]
+
+            def fetch_moneylines(self, sport):
+                return [
+                    Game(
+                        sport=sport.value,
+                        home_team="atlanta braves",
+                        away_team="new york mets",
+                        start_time="2026-04-03T18:00:46Z",
+                        game_id="a",
+                        lines=[Line(book=self.name, home_odds=-160, away_odds=140)],
+                    )
+                ]
+
+        class BookB(BookAdapter):
+            name = "book_b"
+
+            def supported_sports(self):
+                return [Sport.MLB]
+
+            def fetch_moneylines(self, sport):
+                return [
+                    Game(
+                        sport=sport.value,
+                        home_team="atlanta braves",
+                        away_team="new york mets",
+                        start_time="2026-04-03T18:01:00Z",
+                        game_id="b",
+                        lines=[Line(book=self.name, home_odds=-155, away_odds=135)],
+                    )
+                ]
+
+        client = OddsClient(adapters=[BookA(), BookB()])
+        games = client.get_moneylines("mlb")
+        assert len(games) == 1
+        assert len(games[0].lines) == 2
+        assert {ln.book for ln in games[0].lines} == {"book_a", "book_b"}
