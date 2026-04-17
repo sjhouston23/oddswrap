@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
 
 from oddswrap.base import BookAdapter
 from oddswrap.books.betmgm import BetMGMAdapter
@@ -16,6 +17,17 @@ from oddswrap.models import Game, PlayerProp, PropCategory, Sport
 from oddswrap.normalize import normalize_team
 
 logger = logging.getLogger("oddswrap")
+
+
+def _parse_start(raw: str | None) -> datetime | None:
+    """Parse an ISO 8601 start_time to a datetime, or None if unparseable."""
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
 
 _DEFAULT_ADAPTERS: list[BookAdapter] = [
     DraftKingsAdapter(),
@@ -111,37 +123,67 @@ class OddsClient:
         return all_games
 
     def _merge(self, games: list[Game]) -> list[Game]:
-        """Merge games from different books by normalized team names and date."""
-        merged: dict[str, Game] = {}
+        """Merge games from different books into one Game per real-world matchup.
 
+        Strategy is a two-pass merge:
+
+        1. Group by ``(normalized_teams, UTC date)`` — handles the common case.
+        2. Within each date group, cluster by start-time proximity so that two
+           real games played by the same teams on the same UTC date (e.g., the
+           last game of one series and the first game of the next series) are
+           kept separate, while the same game reported with slightly different
+           times across books stays merged.
+
+        The proximity threshold is 3 hours, which is wide enough to absorb the
+        minute-level variance we see between books and tight enough to keep
+        doubleheaders apart.
+        """
+        # Pass 1: group by (teams, date)
+        by_date: dict[str, list[Game]] = {}
         for game in games:
             norm_away = normalize_team(game.away_team)
             norm_home = normalize_team(game.home_team)
-            # Include the date portion of start_time so same-team series games
-            # (and doubleheaders) don't get merged together.
             date_part = game.start_time[:10] if game.start_time else "nodate"
             key = f"{norm_away}@{norm_home}:{date_part}"
+            by_date.setdefault(key, []).append(game)
 
-            if key not in merged:
-                merged[key] = Game(
-                    sport=game.sport,
-                    home_team=norm_home,
-                    away_team=norm_away,
-                    start_time=game.start_time,
-                    game_id=game.game_id,
-                    live=game.live,
+        # Pass 2: cluster by start-time proximity inside each date group
+        merged: list[Game] = []
+        threshold = timedelta(hours=3)
+
+        for group in by_date.values():
+            # Sort so that games with known start times come first and are ordered
+            group.sort(key=lambda g: g.start_time or "")
+
+            clusters: list[list[Game]] = []
+            anchor: datetime | None = None
+
+            for g in group:
+                g_time = _parse_start(g.start_time)
+                if anchor is None or g_time is None or (g_time - anchor) > threshold:
+                    clusters.append([g])
+                    anchor = g_time
+                else:
+                    clusters[-1].append(g)
+
+            for cluster in clusters:
+                first = cluster[0]
+                merged_game = Game(
+                    sport=first.sport,
+                    home_team=normalize_team(first.home_team),
+                    away_team=normalize_team(first.away_team),
+                    start_time=first.start_time,
+                    game_id=first.game_id,
+                    live=any(g.live for g in cluster),
                     lines=[],
                 )
+                for g in cluster:
+                    if not merged_game.start_time and g.start_time:
+                        merged_game.start_time = g.start_time
+                    merged_game.lines.extend(g.lines)
+                merged.append(merged_game)
 
-            if not merged[key].start_time and game.start_time:
-                merged[key].start_time = game.start_time
-
-            if game.live:
-                merged[key].live = True
-
-            merged[key].lines.extend(game.lines)
-
-        return list(merged.values())
+        return merged
 
     @property
     def available_books(self) -> list[str]:
