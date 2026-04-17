@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oddswrap"
-version = "1.2.0"
+version = "1.2.1"
 description = "Unified Python SDK for fetching sportsbook odds across multiple books and sports."
 readme = "README.md"
 requires-python = ">=3.10"
