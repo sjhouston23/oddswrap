@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from curl_cffi import requests as cffi_requests
 
 from oddswrap.base import BookAdapter
-from oddswrap.models import Game, Line, Sport, normalize_start_time, parse_american
+from oddswrap.models import Game, Line, PlayerProp, PropCategory, Sport, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.fanduel")
 
@@ -21,7 +23,28 @@ _PAGE_IDS: dict[Sport, str] = {
 }
 
 _BASE_URL = "https://sbapi.nj.sportsbook.fanduel.com/api/content-managed-page"
+_EVENT_URL = "https://sbapi.nj.sportsbook.fanduel.com/api/event-page"
 _API_KEY = "FhMFpcPWXMeyZxOx"
+
+# Tab on the event page where player props live
+_PROPS_TAB = "popular"
+
+# Matches "N+" inside a market name like "To Record 2+ Hits" / "To Hit 2+ Home Runs"
+_THRESHOLD_RE = re.compile(r"(\d+)\+")
+
+
+def _line_from_market_name(name: str) -> float | None:
+    """Derive an O/U-equivalent line from a FanDuel threshold market name.
+
+    "To Record 2+ Hits" -> 1.5, "To Hit A Home Run" -> 0.5 (1+), else None.
+    """
+    match = _THRESHOLD_RE.search(name)
+    if match:
+        return int(match.group(1)) - 0.5
+    # Singular phrasing ("A"/"An") means 1+ → line 0.5
+    if re.search(r"\b(a|an)\b", name, re.IGNORECASE):
+        return 0.5
+    return None
 
 
 class FanDuelAdapter(BookAdapter):
@@ -232,3 +255,123 @@ class FanDuelAdapter(BookAdapter):
 
         logger.info("FanDuel %s totals: %d games", sport.value, len(games))
         return games
+
+    # -- Player Props --
+
+    def _fetch_event_page(self, event_id: str, tab: str) -> dict | None:
+        try:
+            resp = cffi_requests.get(
+                _EVENT_URL,
+                params={"eventId": event_id, "tab": tab, "_ak": _API_KEY},
+                impersonate="chrome120",
+                headers={"Accept": "application/json"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            logger.warning("FanDuel event-page fetch failed for %s: %s", event_id, exc)
+            return None
+
+    @staticmethod
+    def _is_player_prop_market(mkt: dict) -> bool:
+        """A player-prop market has runners flagged as player selections."""
+        runners = mkt.get("runners", [])
+        return bool(runners) and any(r.get("isPlayerSelection") for r in runners)
+
+    def fetch_prop_categories(self, sport: Sport) -> list[PropCategory]:
+        data = self._fetch_raw(sport)
+        if not data:
+            return []
+        game_events = self._parse_game_events(data)
+        if not game_events:
+            return []
+
+        # Inspect one event's props tab to enumerate player-prop market names
+        sample_eid = next(iter(game_events))
+        page = self._fetch_event_page(sample_eid, _PROPS_TAB)
+        if not page:
+            return []
+
+        markets = page.get("attachments", {}).get("markets", {})
+        seen: set[str] = set()
+        results: list[PropCategory] = []
+        for m in markets.values():
+            if not self._is_player_prop_market(m):
+                continue
+            mname = m.get("marketName", "")
+            if not mname or mname in seen:
+                continue
+            seen.add(mname)
+            results.append(
+                PropCategory(
+                    book=self.name,
+                    category_id=_PROPS_TAB,
+                    category_name="Player Props",
+                    subcategory_id=mname,
+                    subcategory_name=mname,
+                )
+            )
+        return results
+
+    def fetch_props(self, sport: Sport, category_id: str, subcategory_id: str | None = None) -> list[PlayerProp]:
+        data = self._fetch_raw(sport)
+        if not data:
+            return []
+        game_events = self._parse_game_events(data)
+        if not game_events:
+            return []
+
+        tab = category_id or _PROPS_TAB
+        now = datetime.now(timezone.utc).isoformat()
+
+        def _fetch(eid: str) -> list[PlayerProp]:
+            page = self._fetch_event_page(eid, tab)
+            if not page:
+                return []
+            ev = game_events.get(eid, {})
+            game_name = None
+            teams = self._parse_event_teams(ev)
+            if teams:
+                game_name = f"{teams[0]} @ {teams[1]}"
+
+            out: list[PlayerProp] = []
+            markets = page.get("attachments", {}).get("markets", {})
+            for m in markets.values():
+                if not self._is_player_prop_market(m):
+                    continue
+                mname = m.get("marketName", "")
+                if subcategory_id and mname != subcategory_id:
+                    continue
+                line = _line_from_market_name(mname)
+                for runner in m.get("runners", []):
+                    if not runner.get("isPlayerSelection"):
+                        continue
+                    val = parse_american(
+                        runner.get("winRunnerOdds", {}).get("americanDisplayOdds", {}).get("americanOdds")
+                    )
+                    if val is None:
+                        continue
+                    out.append(
+                        PlayerProp(
+                            book=self.name,
+                            player=runner.get("runnerName", ""),
+                            market=mname,
+                            line=line,
+                            over_odds=val,
+                            under_odds=None,
+                            game=game_name,
+                            event_id=eid,
+                            fetched_at=now,
+                        )
+                    )
+            return out
+
+        props: list[PlayerProp] = []
+        event_ids = list(game_events.keys())
+        with ThreadPoolExecutor(max_workers=min(len(event_ids), 8)) as pool:
+            for result in pool.map(_fetch, event_ids):
+                props.extend(result)
+
+        logger.info("FanDuel %s props: %d", sport.value, len(props))
+        return props
