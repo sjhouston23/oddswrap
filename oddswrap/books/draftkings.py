@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 
 from curl_cffi import requests as cffi_requests
@@ -11,6 +12,9 @@ from oddswrap.base import BookAdapter
 from oddswrap.models import Game, Line, PlayerProp, PropCategory, Sport, normalize_start_time, parse_american
 
 logger = logging.getLogger("oddswrap.draftkings")
+
+# Matches DK "X+" threshold labels like "1+", "2+", "3+" (Yes-side-only markets)
+_THRESHOLD_RE = re.compile(r"^(\d+)\+$")
 
 # sportscontent API — league IDs per sport
 _LEAGUE_IDS: dict[Sport, int] = {
@@ -331,11 +335,39 @@ class DraftKingsAdapter(BookAdapter):
             ev = events.get(eid, {})
             game_name = ev.get("name")
             mkt_name = mkt.get("name", "")
+            event_id = str(eid) if eid else None
 
             sels = mkt_sels.get(mid, [])
+
+            # X+ threshold markets (Yes-side-only): emit one PlayerProp per
+            # threshold. "1+" → line 0.5, "2+" → line 1.5, etc. These are
+            # distinct bets that trade independently, so don't collapse them.
+            threshold_sels = [s for s in sels if _THRESHOLD_RE.match(s.get("label", "").strip())]
+            if threshold_sels:
+                for sel in threshold_sels:
+                    match = _THRESHOLD_RE.match(sel.get("label", "").strip())
+                    n = int(match.group(1))
+                    val = parse_american(sel.get("displayOdds", {}).get("american", ""))
+                    if val is None:
+                        continue
+                    props.append(
+                        PlayerProp(
+                            book=self.name,
+                            player=mkt_name,
+                            market=mkt_name,
+                            line=n - 0.5,
+                            over_odds=val,
+                            under_odds=None,
+                            game=game_name,
+                            event_id=event_id,
+                            fetched_at=now,
+                        )
+                    )
+                continue
+
+            # Over/Under markets (e.g. "Hits O/U"): one PlayerProp per market.
             over_odds = under_odds = None
             line = None
-            player = mkt_name
 
             for sel in sels:
                 label = sel.get("label", "")
@@ -357,13 +389,13 @@ class DraftKingsAdapter(BookAdapter):
             props.append(
                 PlayerProp(
                     book=self.name,
-                    player=player,
+                    player=mkt_name,
                     market=mkt_name,
                     line=line,
                     over_odds=over_odds,
                     under_odds=under_odds,
                     game=game_name,
-                    event_id=str(eid) if eid else None,
+                    event_id=event_id,
                     fetched_at=now,
                 )
             )

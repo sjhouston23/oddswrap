@@ -83,6 +83,10 @@ props = client.get_props("mlb", category_id="Player Props", subcategory_id="Tota
 # Fetch props (BetRivers)
 props = client.get_props("mlb", category_id="Player Occurrence Line",
     subcategory_id="Total Hits by the Player - Including Extra Innings ...", book="betrivers")
+
+# Fetch props (FanDuel) — player props live under the "popular" tab,
+# one market per threshold ("To Record 2+ Hits", "To Hit A Home Run", ...)
+props = client.get_props("mlb", category_id="popular", subcategory_id="To Record 2+ Hits", book="fanduel")
 ```
 
 | Method | Returns | Description |
@@ -91,6 +95,8 @@ props = client.get_props("mlb", category_id="Player Occurrence Line",
 | `get_props(sport, category_id, subcategory_id=, book=)` | `List[PlayerProp]` | Fetch player props for a category. IDs are book-specific — use `get_prop_categories` to discover them. |
 
 > **Note:** Category and subcategory IDs are book-specific. Use `get_prop_categories()` to discover what each book offers, then pass those IDs to `get_props()`. Props are not merged across books — each `PlayerProp` includes a `book` field.
+
+**"X+" / Yes-only markets.** Threshold markets (DraftKings "1+/2+/3+ Hits", FanDuel "To Record 2+ Hits", "To Hit A Home Run") are mapped onto the standard O/U fields: each threshold becomes its own `PlayerProp` with `over_odds` set, `under_odds=None`, and `line = N - 0.5` (so "2+ hits" → `line=1.5`, "1+"/"A" → `line=0.5`). Filter the "1+" side with `p.line == 0.5`. Because these are Yes-side-only, `1 / decimal(over_odds)` is the break-even (vig-inclusive) probability.
 
 ### Game
 
@@ -210,7 +216,7 @@ normalize_team("Chi White Sox") # "chicago white sox"
 | Book | Moneylines | Spreads | Totals | Props | Sports |
 |------|:----------:|:-------:|:------:|:-----:|--------|
 | DraftKings | ✅ | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
-| FanDuel | ✅ | ✅ | ✅ | | MLB, NBA, NFL, NHL |
+| FanDuel | ✅ | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
 | Bovada | ✅ | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL, NCAAF, NCAAB |
 | BetRivers | ✅ | ✅ | ✅ | ✅ | MLB, NBA, NFL, NHL |
 | BetMGM | ✅ | ✅ | ✅ | | MLB, NBA, NFL, NHL |

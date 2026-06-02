@@ -4,8 +4,23 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from oddswrap.books.fanduel import FanDuelAdapter
+from oddswrap.books.fanduel import FanDuelAdapter, _line_from_market_name
 from oddswrap.models import Sport, parse_american
+
+
+class TestLineFromMarketName:
+    def test_n_plus(self):
+        assert _line_from_market_name("To Record 2+ Hits") == 1.5
+        assert _line_from_market_name("To Record 3+ Hits") == 2.5
+        assert _line_from_market_name("To Hit 2+ Home Runs") == 1.5
+
+    def test_singular(self):
+        assert _line_from_market_name("To Record A Hit") == 0.5
+        assert _line_from_market_name("To Hit A Home Run") == 0.5
+        assert _line_from_market_name("To Record An RBI") == 0.5
+
+    def test_unknown(self):
+        assert _line_from_market_name("Some Weird Market") is None
 
 
 class TestParseAmerican:
@@ -96,3 +111,111 @@ class TestFanDuelAdapter:
         # Starter info "(S Manaea)" should be stripped
         assert "(" not in mets_game.away_team
         assert "(" not in mets_game.home_team
+
+    @patch("oddswrap.books.fanduel.cffi_requests.get")
+    def test_fetch_props(self, mock_get, fd_raw_response):
+        """Player props: one PlayerProp per (market, player), Yes-side-only."""
+        event_page = {
+            "attachments": {
+                "markets": {
+                    "m1": {
+                        "marketName": "To Record 2+ Hits",
+                        "runners": [
+                            {
+                                "runnerName": "Mookie Betts",
+                                "isPlayerSelection": True,
+                                "winRunnerOdds": {"americanDisplayOdds": {"americanOdds": -110}},
+                            },
+                            {
+                                "runnerName": "Corbin Carroll",
+                                "isPlayerSelection": True,
+                                "winRunnerOdds": {"americanDisplayOdds": {"americanOdds": 130}},
+                            },
+                        ],
+                    },
+                    "m2": {
+                        "marketName": "To Hit A Home Run",
+                        "runners": [
+                            {
+                                "runnerName": "Shohei Ohtani",
+                                "isPlayerSelection": True,
+                                "winRunnerOdds": {"americanDisplayOdds": {"americanOdds": 1000}},
+                            }
+                        ],
+                    },
+                    # Non-player market should be ignored
+                    "m3": {
+                        "marketName": "Moneyline",
+                        "runners": [{"runnerName": "Arizona Diamondbacks", "winRunnerOdds": {}}],
+                    },
+                }
+            }
+        }
+
+        def side_effect(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "event-page" in url:
+                resp.json.return_value = event_page
+            else:
+                resp.json.return_value = fd_raw_response
+            return resp
+
+        mock_get.side_effect = side_effect
+
+        # Without subcategory filter — all player props across both game events
+        props = self.adapter.fetch_props(Sport.MLB, category_id="popular")
+        # fd_raw_response has 2 game events; each returns 3 player props (2 hits + 1 HR)
+        assert len(props) == 6
+        assert all(p.under_odds is None for p in props)
+        assert {p.market for p in props} == {"To Record 2+ Hits", "To Hit A Home Run"}
+
+        betts = next(p for p in props if p.player == "Mookie Betts")
+        assert betts.line == 1.5
+        assert betts.over_odds == -110
+
+        ohtani = next(p for p in props if p.player == "Shohei Ohtani")
+        assert ohtani.line == 0.5
+        assert ohtani.over_odds == 1000
+
+    @patch("oddswrap.books.fanduel.cffi_requests.get")
+    def test_fetch_props_subcategory_filter(self, mock_get, fd_raw_response):
+        event_page = {
+            "attachments": {
+                "markets": {
+                    "m1": {
+                        "marketName": "To Record 2+ Hits",
+                        "runners": [
+                            {
+                                "runnerName": "Mookie Betts",
+                                "isPlayerSelection": True,
+                                "winRunnerOdds": {"americanDisplayOdds": {"americanOdds": -110}},
+                            }
+                        ],
+                    },
+                    "m2": {
+                        "marketName": "To Hit A Home Run",
+                        "runners": [
+                            {
+                                "runnerName": "Shohei Ohtani",
+                                "isPlayerSelection": True,
+                                "winRunnerOdds": {"americanDisplayOdds": {"americanOdds": 1000}},
+                            }
+                        ],
+                    },
+                }
+            }
+        }
+
+        def side_effect(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.json.return_value = event_page if "event-page" in url else fd_raw_response
+            return resp
+
+        mock_get.side_effect = side_effect
+
+        props = self.adapter.fetch_props(Sport.MLB, category_id="popular", subcategory_id="To Hit A Home Run")
+        assert len(props) == 2  # one per game event
+        assert all(p.market == "To Hit A Home Run" for p in props)
+        assert all(p.player == "Shohei Ohtani" for p in props)

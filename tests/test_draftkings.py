@@ -91,3 +91,88 @@ class TestDraftKingsAdapter:
     def test_unsupported_sport_returns_none(self):
         result = self.adapter._fetch_raw(Sport.NCAAF)
         assert result is None
+
+    @patch("oddswrap.books.draftkings.cffi_requests.get")
+    def test_fetch_props_over_under(self, mock_get):
+        """Over/Under prop markets (e.g. Hits O/U) parse into one prop per market."""
+        data = {
+            "events": [{"id": "e1", "name": "NY Mets @ ATL Braves"}],
+            "markets": [{"id": "m1", "eventId": "e1", "name": "Mookie Betts Hits O/U"}],
+            "selections": [
+                {"marketId": "m1", "label": "Over 1.5", "points": 1.5, "displayOdds": {"american": "+120"}},
+                {"marketId": "m1", "label": "Under 1.5", "points": 1.5, "displayOdds": {"american": "-150"}},
+            ],
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = data
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        props = self.adapter.fetch_props(Sport.MLB, category_id="743", subcategory_id="6719")
+        assert len(props) == 1
+        p = props[0]
+        assert p.player == "Mookie Betts Hits O/U"
+        assert p.line == 1.5
+        assert p.over_odds == 120
+        assert p.under_odds == -150
+
+    @patch("oddswrap.books.draftkings.cffi_requests.get")
+    def test_fetch_props_x_plus_thresholds(self, mock_get):
+        """X+ markets emit one prop per threshold (1+, 2+, 3+), Yes-side-only."""
+        data = {
+            "events": [{"id": "e1", "name": "NY Mets @ ATL Braves"}],
+            "markets": [{"id": "m1", "eventId": "e1", "name": "Aaron Judge Home Runs"}],
+            "selections": [
+                {"marketId": "m1", "label": "1+", "points": None, "displayOdds": {"american": "+250"}},
+                {"marketId": "m1", "label": "2+", "points": None, "displayOdds": {"american": "+900"}},
+                {"marketId": "m1", "label": "3+", "points": None, "displayOdds": {"american": "\u22122500"}},
+            ],
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = data
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        props = self.adapter.fetch_props(Sport.MLB, category_id="743", subcategory_id="17319")
+        # One prop per threshold — not collapsed
+        assert len(props) == 3
+        by_line = {p.line: p for p in props}
+        assert set(by_line) == {0.5, 1.5, 2.5}
+        # 1+ → line 0.5, Yes-side-only
+        assert by_line[0.5].over_odds == 250
+        assert by_line[0.5].under_odds is None
+        # 2+ → line 1.5
+        assert by_line[1.5].over_odds == 900
+        # 3+ → line 2.5, unicode-minus odds parsed
+        assert by_line[2.5].over_odds == -2500
+        assert all(p.player == "Aaron Judge Home Runs" for p in props)
+
+    @patch("oddswrap.books.draftkings.cffi_requests.get")
+    def test_fetch_props_mixed_markets(self, mock_get):
+        """A payload with both O/U and X+ markets flows both through correctly."""
+        data = {
+            "events": [{"id": "e1", "name": "NY Mets @ ATL Braves"}],
+            "markets": [
+                {"id": "m1", "eventId": "e1", "name": "Player A Hits O/U"},
+                {"id": "m2", "eventId": "e1", "name": "Player B Hits"},
+            ],
+            "selections": [
+                {"marketId": "m1", "label": "Over 0.5", "points": 0.5, "displayOdds": {"american": "-200"}},
+                {"marketId": "m1", "label": "Under 0.5", "points": 0.5, "displayOdds": {"american": "+160"}},
+                {"marketId": "m2", "label": "1+", "points": None, "displayOdds": {"american": "-180"}},
+                {"marketId": "m2", "label": "2+", "points": None, "displayOdds": {"american": "+210"}},
+            ],
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = data
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        props = self.adapter.fetch_props(Sport.MLB, category_id="743", subcategory_id="x")
+        # 1 O/U prop + 2 threshold props = 3
+        assert len(props) == 3
+        ou = [p for p in props if p.player == "Player A Hits O/U"]
+        assert len(ou) == 1 and ou[0].under_odds == 160
+        thresholds = [p for p in props if p.player == "Player B Hits"]
+        assert len(thresholds) == 2
+        assert all(p.under_odds is None for p in thresholds)
