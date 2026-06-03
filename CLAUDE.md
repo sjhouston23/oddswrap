@@ -4,15 +4,15 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-**oddswrap** is a standalone Python SDK for fetching sportsbook odds directly from sportsbook APIs. It wraps DraftKings, FanDuel, Bovada, BetRivers (Kambi), BetMGM, and Caesars behind a unified interface with standardized input/output. No API keys, no middleman services — goes direct to the source using `curl_cffi` for TLS fingerprint impersonation.
+**oddswrap** is a standalone Python SDK for fetching sportsbook odds directly from sportsbook APIs. It wraps DraftKings, FanDuel, Bovada, BetRivers (Kambi), BetMGM, and Caesars behind a unified interface with standardized input/output. It covers game-line markets (moneylines, spreads/run-lines, totals) and player props. No API keys, no middleman services — goes direct to the source using `curl_cffi` for TLS fingerprint impersonation.
 
 ## Architecture
 
 ```
 oddswrap/
-  __init__.py          # Public exports: OddsClient, Game, Line, Sport, normalize_team
+  __init__.py          # Public exports: OddsClient, Game, Line, Sport, PlayerProp, PropCategory, normalize_team
   client.py            # OddsClient — parallel fetch from all books, merge by game
-  models.py            # Dataclasses: Game, Line, Sport, Market
+  models.py            # Dataclasses: Game, Line, PlayerProp, PropCategory; enums: Sport, Market
   base.py              # BookAdapter ABC — interface all book adapters implement
   normalize.py         # Team name normalization across books (MLB/NBA/NFL/NHL aliases)
   books/
@@ -43,10 +43,12 @@ tests/
 
 - **Standalone package** — no external app dependencies. Can be used by any Python project.
 - **`curl_cffi` with `impersonate="chrome120"`** — both DraftKings and FanDuel block standard HTTP clients via Cloudflare/TLS fingerprinting. `curl_cffi` impersonates a real browser's TLS handshake.
-- **Market-specific methods** — `get_moneylines()`, `get_spreads()`, `get_totals()`, `get_all()` instead of a vague `get_odds()`. Each returns `List[Game]` with the relevant `Line` fields populated.
+- **Market-specific methods** — `get_moneylines()`, `get_spreads()`, `get_totals()`, `get_all()` instead of a vague `get_odds()`. Each returns `List[Game]` with the relevant `Line` fields populated. Player props are exposed via `get_prop_categories()` (discover available prop markets) and `get_props(sport, category_id, subcategory_id=None, book=None)` → `List[PlayerProp]`. Helper introspection: `OddsClient.available_books` and `OddsClient.supports(sport)`.
 - **Automatic team name normalization** — DraftKings uses abbreviations ("NY Mets"), FanDuel uses full names ("New York Mets"). The `normalize.py` module maps both to canonical lowercase forms for cross-book merging.
 - **Parallel fetching** — `OddsClient` fetches from all adapters concurrently via `ThreadPoolExecutor`.
-- **Adapter pattern** — each sportsbook is a `BookAdapter` subclass. Adding a new book means implementing `fetch_moneylines()`, `fetch_spreads()`, `fetch_totals()` for the sports it supports.
+- **Adapter pattern** — each sportsbook is a `BookAdapter` subclass. Adding a new book means implementing `fetch_moneylines()`, `fetch_spreads()`, `fetch_totals()` for the sports it supports, and optionally `fetch_prop_categories()` / `fetch_props()` for player props. The game-line `fetch_*` methods default to raising `NotImplementedError` (handled gracefully by the client); the prop methods default to returning `[]`.
+- **Sport coverage** — the `Sport` enum has `MLB, NBA, NFL, NHL, NCAAF, NCAAB`. Most adapters declare only MLB/NBA/NFL/NHL via `supported_sports()`; Bovada additionally supports NCAAF/NCAAB.
+- **Player props** — DraftKings, FanDuel, Bovada, and BetRivers implement props (`fetch_prop_categories`/`fetch_props`). BetMGM and Caesars currently do game lines only (they inherit the no-op prop defaults).
 
 ## Sportsbook API Details
 
@@ -129,7 +131,7 @@ tests/
 - American odds in `price.american` (string), handicap in `price.handicap` (string)
 - `startTime` is epoch milliseconds — adapter converts to ISO 8601
 - Status `"O"` = open/active
-- Market names: `"Moneyline"`, `"Point Spread"` (or `"Run Line"` for MLB), `"Total"`
+- Market names: `"Moneyline"`, `"Point Spread"` (or `"Runline"` for MLB), `"Total"`
 
 **Team names use full names:** "New York Mets", "Atlanta Braves" — normalizes cleanly.
 
@@ -158,9 +160,9 @@ tests/
 
 **Endpoint:** `https://sports.{state}.betmgm.com/cds-api/bettingoffer/fixtures`
 
-**Required params:** `x-bwin-accessid`, `sportIds`, `competitionIds`, `lang=en-us`, `country=US`
+**Required params:** `x-bwin-accessid`, `sportIds`, `competitionIds`, `lang=en-us`, `country=US`, `userCountry=US`, `offerMapping=Filtered`, `fixtureTypes=Standard`, `sortBy=StartDate`, `offerCategories=Gridable` (plus `gridGroupId` when drilling into a grid view). Market odds come back in each fixture's `optionMarkets`.
 
-**Access ID:** `OTU4NDk3MzEtOTAyNS00MjQzLWIxNWEtNTI2MjdhNWM3Zjk3` (static, embedded in frontend)
+**Access ID:** auto-discovered at runtime from BetMGM's client-config endpoint (`https://www.{state}.betmgm.com/en/api/clientconfig`, parsed out of `msPreloader.groupingUrl`), so it stays current when they rotate the key. Falls back to the hardcoded `_FALLBACK_ACCESS_ID` (`ZTllNjllODUtOWQwNS00YmU4LWE4NTEtZGZjOTkzMGM5OWU4`) if discovery fails.
 
 **Sport IDs:** MLB=23, NBA=7, NFL=11, NHL=12
 **Competition IDs:** MLB=75, NBA=6004, NFL=35, NHL=25
